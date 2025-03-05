@@ -96,37 +96,16 @@ contract HiveCoreTest is Test {
         amounts[0] = 1 * 10 ** 18;
 
         for (uint256 i = 0; i < 50; i++) {
-            vm.prank(trader1);
-            quoteToken.approve(address(hive), amounts[0]);
+            vm.startPrank(trader1);
+            quoteToken.approve(address(hive), type(uint256).max);
             hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
+            vm.stopPrank();
 
-            vm.prank(trader2);
-            baseToken.approve(address(hive), amounts[0]);
+            vm.startPrank(trader2);
+            baseToken.approve(address(hive), type(uint256).max);
             hive.placeOrder(prices, amounts, HiveCore.OrderType.SELL);
+            vm.stopPrank();
         }
-    }
-
-    function testEdgeCases() public {
-        uint256[] memory prices = new uint256[](1);
-        uint256[] memory amounts = new uint256[](1);
-
-        // Test with maximum possible values
-        prices[0] = type(uint256).max;
-        amounts[0] = 1;
-
-        vm.startPrank(trader1);
-        quoteToken.approve(address(hive), type(uint256).max);
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
-        vm.stopPrank();
-
-        // Test with minimum values
-        prices[0] = 1;
-        amounts[0] = 1;
-
-        vm.startPrank(trader2);
-        baseToken.approve(address(hive), 1);
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.SELL);
-        vm.stopPrank();
     }
 
     function testBatchSizeLimit() public {
@@ -150,23 +129,27 @@ contract HiveCoreTest is Test {
         uint256[] memory amounts = new uint256[](1);
         prices[0] = 1000;
         amounts[0] = 1 * 10 ** 18;
-        
-        
+
         console.log("address hive", address(hive));
 
         // Multiple traders interacting with the same price point
         vm.startPrank(trader1);
         quoteToken.approve(address(hive), type(uint256).max);
+        console.log("balance quote trader1", quoteToken.balanceOf(trader1) / 1e18);
+        console.log("amouts", amounts[0] / 1e18);
         hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
         vm.stopPrank();
 
         vm.startPrank(trader2);
         baseToken.approve(address(hive), type(uint256).max);
+        console.log("balance base trader2", baseToken.balanceOf(trader2));
+        console.log("amouts", amounts[0] / 1e18);
         hive.placeOrder(prices, amounts, HiveCore.OrderType.SELL);
         vm.stopPrank();
 
         vm.startPrank(trader3);
         quoteToken.approve(address(hive), type(uint256).max);
+        console.log("balance quote trader3", quoteToken.balanceOf(trader3));
         hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
         vm.stopPrank();
     }

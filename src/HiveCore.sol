@@ -3,7 +3,7 @@ pragma solidity ^0.8.0;
 
 import "./LimitTree.sol";
 import "forge-std/console.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract HiveCore {
@@ -25,8 +25,8 @@ contract HiveCore {
 
     uint256 public constant MAX_BATCH_SIZE = 100;
 
-    address private immutable baseToken;
-    address private immutable quoteToken;
+    ERC20 private immutable baseToken;
+    ERC20 private immutable quoteToken;
 
     mapping(uint256 => Order) public orders;
     mapping(uint256 => uint256) public buyOrderAtPrices;
@@ -40,8 +40,8 @@ contract HiveCore {
     event OrderCreated(address indexed trader, uint256 price, uint256 amount, OrderType orderType);
 
     constructor(address _baseToken, address _quoteToken) {
-        baseToken = _baseToken;
-        quoteToken = _quoteToken;
+        baseToken = ERC20(_baseToken);
+        quoteToken = ERC20(_quoteToken);
         buyTree = new LimitTree();
         sellTree = new LimitTree();
     }
@@ -97,14 +97,19 @@ contract HiveCore {
         require(price.length <= MAX_BATCH_SIZE, "Batch size too large");
 
         uint256 totalAmount;
+        uint256 totalQuoteAmount;
         for (uint256 i = 0; i < price.length; i++) {
-            totalAmount += amount[i];
+            if (orderType == OrderType.BUY) {
+                totalQuoteAmount += (price[i] * amount[i]) / (10 ** baseToken.decimals());
+            } else {
+                totalAmount += amount[i];
+            }
         }
 
         if (orderType == OrderType.BUY) {
-            IERC20(quoteToken).transferFrom(msg.sender, address(this), totalAmount);
+            quoteToken.transferFrom(msg.sender, address(this), totalQuoteAmount);
         } else {
-            IERC20(baseToken).transferFrom(msg.sender, address(this), totalAmount);
+            baseToken.transferFrom(msg.sender, address(this), totalAmount);
         }
 
         for (uint256 i = 0; i < price.length; i++) {
@@ -129,7 +134,7 @@ contract HiveCore {
         uint256 bestBid = listBids[0];
         uint256 bestAsk = listAsks[0];
 
-        if (bestBid == bestAsk) {
+        if (bestBid >= bestAsk) {
             // execute trade
             while (buyOrderAtPrices[bestBid] != 0 && sellOrderAtPrices[bestAsk] != 0) {
                 uint256 buyOrderId = buyOrderAtPrices[bestBid];
@@ -139,10 +144,10 @@ contract HiveCore {
                 Order storage sellOrder = orders[sellOrderId];
 
                 uint256 tradeAmount = Math.min(buyOrder.amount - buyOrder.filled, sellOrder.amount - sellOrder.filled);
-                uint256 tradeValue = tradeAmount * bestBid;
+                uint256 tradeValue = (tradeAmount * bestBid) / (10 ** baseToken.decimals());
 
-                IERC20(quoteToken).transfer(buyOrder.trader, tradeValue);
-                IERC20(baseToken).transfer(sellOrder.trader, tradeAmount);
+                quoteToken.transfer(sellOrder.trader, tradeValue);
+                baseToken.transfer(buyOrder.trader, tradeAmount);
 
                 buyOrder.filled += tradeAmount;
                 sellOrder.filled += tradeAmount;
