@@ -38,6 +38,8 @@ contract HiveCore {
     uint256 public orderId;
 
     event OrderCreated(address indexed trader, uint256 price, uint256 amount, OrderType orderType);
+    event OrderCancelled(uint256 indexed orderId);
+    event OrderUpdated(uint256 indexed orderId, uint256 newAmount);
 
     constructor(address _baseToken, address _quoteToken) {
         baseToken = ERC20(_baseToken);
@@ -169,5 +171,213 @@ contract HiveCore {
                 sellTree.deleteValue(bestAsk);
             }
         }
+    }
+
+    /**
+     *  @dev Cancel an order
+     *  @param id The ID of the order to cancel
+     */
+    function cancelOrder(uint256 id) public {
+        require(orders[id].trader == msg.sender, "Only the trader can cancel the order");
+        require(orders[id].active, "Order is already inactive");
+
+        Order storage order = orders[id];
+        order.active = false;
+
+        uint256 price = order.price;
+        if (order.orderType == OrderType.BUY) {
+            buyOrderAtPrices[price] = order.next;
+            if (buyOrderAtPrices[price] == 0) {
+                buyTree.deleteValue(price);
+            }
+        } else {
+            sellOrderAtPrices[price] = order.next;
+            if (sellOrderAtPrices[price] == 0) {
+                sellTree.deleteValue(price);
+            }
+        }
+
+        // Refund the remaining amount
+        if (order.orderType == OrderType.BUY) {
+            uint256 remainingAmount = (order.amount - order.filled) * order.price / (10 ** baseToken.decimals());
+            quoteToken.transfer(msg.sender, remainingAmount);
+        } else {
+            uint256 remainingAmount = order.amount - order.filled;
+            baseToken.transfer(msg.sender, remainingAmount);
+        }
+
+        emit OrderCancelled(id);
+    }
+
+    /**
+     *  @dev Update the amount of an order
+     *  @param id The ID of the order to update
+     *  @param newAmount The new amount of the order
+     */
+    function updateOrder(uint256 id, uint256 newAmount) public {
+        require(orders[id].trader == msg.sender, "Only the trader can update the order");
+        require(orders[id].active, "Order is inactive");
+        require(newAmount > 0, "Amount must be greater than 0");
+
+        Order storage order = orders[id];
+
+        // Ensure the new amount is not less than the filled amount
+        require(newAmount > order.filled, "New amount must be greater than or equal to filled amount");
+
+        // Calculate the difference in amount
+        uint256 amountDifference;
+        if (newAmount > order.amount) {
+            amountDifference = newAmount - order.amount;
+            // Transfer additional tokens from the trader
+            if (order.orderType == OrderType.BUY) {
+                uint256 additionalQuote = (amountDifference * order.price) / (10 ** baseToken.decimals());
+                quoteToken.transferFrom(msg.sender, address(this), additionalQuote);
+            } else {
+                baseToken.transferFrom(msg.sender, address(this), amountDifference);
+            }
+        } else if (newAmount < order.amount) {
+            amountDifference = order.amount - newAmount;
+            // Refund excess tokens to the trader
+            if (order.orderType == OrderType.BUY) {
+                uint256 refundQuote = (amountDifference * order.price) / (10 ** baseToken.decimals());
+                quoteToken.transfer(msg.sender, refundQuote);
+            } else {
+                baseToken.transfer(msg.sender, amountDifference);
+            }
+        }
+
+        // Update the order amount
+        order.amount = newAmount;
+
+        emit OrderUpdated(id, newAmount);
+    }
+
+    /**
+     * @dev Executes a market order.
+     * @param amount The amount of the order.
+     * @param orderType The type of the order (BUY or SELL).
+     */
+    function executeMarketOrder(uint256 amount, OrderType orderType) public {
+        require(amount > 0, "Amount must be greater than 0");
+
+        if (orderType == OrderType.BUY) {
+            _executeBuyMarketOrder(amount);
+        } else if (orderType == OrderType.SELL) {
+            _executeSellMarketOrder(amount);
+        } else {
+            revert("Invalid order type");
+        }
+    }
+
+    /**
+     * @dev Executes a buy market order.
+     * @param amount The amount of the order.
+     */
+    function _executeBuyMarketOrder(uint256 amount) private {
+        uint256 remainingAmount = amount;
+        uint256[] memory sellPrices = sellTree.getAscendingOrder();
+
+        for (uint256 i = 0; i < sellPrices.length; i++) {
+            uint256 price = sellPrices[i];
+            uint256 sellOrderId = sellOrderAtPrices[price];
+
+            while (sellOrderId != 0 && remainingAmount > 0) {
+                Order storage sellOrder = orders[sellOrderId];
+
+                uint256 tradeAmount = Math.min(sellOrder.amount - sellOrder.filled, remainingAmount);
+                uint256 tradeValue = (tradeAmount * price) / (10 ** baseToken.decimals());
+
+                // Transfer tokens
+                quoteToken.transferFrom(msg.sender, sellOrder.trader, tradeValue);
+                baseToken.transfer(msg.sender, tradeAmount);
+
+                // Update order and remaining amount
+                sellOrder.filled += tradeAmount;
+                remainingAmount -= tradeAmount;
+
+                // If the sell order is fully filled, deactivate it
+                if (sellOrder.filled == sellOrder.amount) {
+                    sellOrder.active = false;
+                    sellOrderAtPrices[price] = sellOrder.next;
+                }
+
+                // Move to the next sell order at the same price
+                sellOrderId = sellOrder.next;
+            }
+
+            // If no more sell orders at this price, remove the price from the sellTree
+            if (sellOrderAtPrices[price] == 0) {
+                sellTree.deleteValue(price);
+            }
+
+            // Stop if the market order is fully filled
+            if (remainingAmount == 0) {
+                break;
+            }
+        }
+    }
+
+    /**
+     * @dev Executes a sell market order.
+     * @param amount The amount of the order.
+     */
+    function _executeSellMarketOrder(uint256 amount) private {
+        uint256 remainingAmount = amount;
+        uint256[] memory buyPrices = buyTree.getDescendingOrder();
+
+        for (uint256 i = 0; i < buyPrices.length; i++) {
+            uint256 price = buyPrices[i];
+            uint256 buyOrderId = buyOrderAtPrices[price];
+
+            while (buyOrderId != 0 && remainingAmount > 0) {
+                Order storage buyOrder = orders[buyOrderId];
+
+                uint256 tradeAmount = Math.min(buyOrder.amount - buyOrder.filled, remainingAmount);
+                uint256 tradeValue = (tradeAmount * price) / (10 ** baseToken.decimals());
+
+                // Transfer tokens
+                baseToken.transferFrom(msg.sender, buyOrder.trader, tradeAmount);
+                quoteToken.transfer(msg.sender, tradeValue);
+
+                // Update order and remaining amount
+                buyOrder.filled += tradeAmount;
+                remainingAmount -= tradeAmount;
+
+                // If the buy order is fully filled, deactivate it
+                if (buyOrder.filled == buyOrder.amount) {
+                    buyOrder.active = false;
+                    buyOrderAtPrices[price] = buyOrder.next;
+                }
+
+                // Move to the next buy order at the same price
+                buyOrderId = buyOrder.next;
+            }
+
+            // If no more buy orders at this price, remove the price from the buyTree
+            if (buyOrderAtPrices[price] == 0) {
+                buyTree.deleteValue(price);
+            }
+
+            // Stop if the market order is fully filled
+            if (remainingAmount == 0) {
+                break;
+            }
+        }
+    }
+
+    /**
+     *  @dev Get the buy tree prices
+     *  @return The buy tree prices
+     */
+    function getBuyTreePrices() public view returns (uint256[] memory) {
+        return buyTree.getAscendingOrder();
+    }
+
+    /**
+     *  @dev Get the sell tree prices
+     *  @return The sell tree prices
+     */
+    function getSellTreePrices() public view returns (uint256[] memory) {
+        return sellTree.getDescendingOrder();
     }
 }
