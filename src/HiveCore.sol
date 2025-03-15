@@ -5,24 +5,10 @@ import "./LimitTree.sol";
 import "forge-std/console.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
+import "./interfaces/IHiveCore.sol";
+import "./types/Types.sol";
 
-contract HiveCore {
-    enum OrderType {
-        BUY,
-        SELL
-    }
-
-    struct Order {
-        address trader;
-        uint256 price;
-        uint256 amount;
-        uint256 filled;
-        uint256 timestamp;
-        OrderType orderType;
-        bool active;
-        uint256 next;
-    }
-
+contract HiveCore is IHiveCore {
     uint256 public constant MAX_BATCH_SIZE = 100;
 
     ERC20 private immutable baseToken;
@@ -36,10 +22,6 @@ contract HiveCore {
     LimitTree private sellTree;
 
     uint256 public orderId;
-
-    event OrderCreated(address indexed trader, uint256 price, uint256 amount, OrderType orderType);
-    event OrderCancelled(uint256 indexed orderId);
-    event OrderUpdated(uint256 indexed orderId, uint256 newAmount);
 
     constructor(address _baseToken, address _quoteToken) {
         baseToken = ERC20(_baseToken);
@@ -94,7 +76,7 @@ contract HiveCore {
      *  @param amount The amount of the order
      *  @param orderType The type of the order
      */
-    function placeOrder(uint256[] memory price, uint256[] memory amount, OrderType orderType) public {
+    function placeOrder(uint256[] memory price, uint256[] memory amount, OrderType orderType) public override {
         require(price.length == amount.length, "Invalid input");
         require(price.length <= MAX_BATCH_SIZE, "Batch size too large");
 
@@ -177,7 +159,7 @@ contract HiveCore {
      *  @dev Cancel an order
      *  @param id The ID of the order to cancel
      */
-    function cancelOrder(uint256 id) public {
+    function cancelOrder(uint256 id) public override {
         require(orders[id].trader == msg.sender, "Only the trader can cancel the order");
         require(orders[id].active, "Order is already inactive");
 
@@ -214,7 +196,7 @@ contract HiveCore {
      *  @param id The ID of the order to update
      *  @param newAmount The new amount of the order
      */
-    function updateOrder(uint256 id, uint256 newAmount) public {
+    function updateOrder(uint256 id, uint256 newAmount) public override {
         require(orders[id].trader == msg.sender, "Only the trader can update the order");
         require(orders[id].active, "Order is inactive");
         require(newAmount > 0, "Amount must be greater than 0");
@@ -257,7 +239,7 @@ contract HiveCore {
      * @param amount The amount of the order.
      * @param orderType The type of the order (BUY or SELL).
      */
-    function executeMarketOrder(uint256 amount, OrderType orderType) public {
+    function executeMarketOrder(uint256 amount, OrderType orderType) public override {
         require(amount > 0, "Amount must be greater than 0");
 
         if (orderType == OrderType.BUY) {
@@ -369,7 +351,7 @@ contract HiveCore {
      *  @dev Get the buy tree prices
      *  @return The buy tree prices
      */
-    function getBuyTreePrices() public view returns (uint256[] memory) {
+    function getBuyTreePrices() public view override returns (uint256[] memory) {
         return buyTree.getAscendingOrder();
     }
 
@@ -377,7 +359,7 @@ contract HiveCore {
      *  @dev Get the sell tree prices
      *  @return The sell tree prices
      */
-    function getSellTreePrices() public view returns (uint256[] memory) {
+    function getSellTreePrices() public view override returns (uint256[] memory) {
         return sellTree.getDescendingOrder();
     }
 }

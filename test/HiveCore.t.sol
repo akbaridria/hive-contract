@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "forge-std/Test.sol";
 import "../src/HiveCore.sol";
+import "../src/types/Types.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 // Mock ERC20 token for testing
@@ -56,13 +57,13 @@ contract HiveCoreTest is Test {
 
         vm.startPrank(trader1);
         quoteToken.approve(address(hive), type(uint256).max);
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
+        hive.placeOrder(prices, amounts, OrderType.BUY);
         vm.stopPrank();
 
         // Create 100 sell orders
         vm.startPrank(trader2);
         baseToken.approve(address(hive), type(uint256).max);
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.SELL);
+        hive.placeOrder(prices, amounts, OrderType.SELL);
         vm.stopPrank();
     }
 
@@ -78,12 +79,12 @@ contract HiveCoreTest is Test {
 
         vm.startPrank(trader1);
         quoteToken.approve(address(hive), type(uint256).max);
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
+        hive.placeOrder(prices, amounts, OrderType.BUY);
         vm.stopPrank();
 
         vm.startPrank(trader2);
         baseToken.approve(address(hive), type(uint256).max);
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.SELL);
+        hive.placeOrder(prices, amounts, OrderType.SELL);
         vm.stopPrank();
     }
 
@@ -98,12 +99,12 @@ contract HiveCoreTest is Test {
         for (uint256 i = 0; i < 50; i++) {
             vm.startPrank(trader1);
             quoteToken.approve(address(hive), type(uint256).max);
-            hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
+            hive.placeOrder(prices, amounts, OrderType.BUY);
             vm.stopPrank();
 
             vm.startPrank(trader2);
             baseToken.approve(address(hive), type(uint256).max);
-            hive.placeOrder(prices, amounts, HiveCore.OrderType.SELL);
+            hive.placeOrder(prices, amounts, OrderType.SELL);
             vm.stopPrank();
         }
     }
@@ -120,7 +121,7 @@ contract HiveCoreTest is Test {
         vm.startPrank(trader1);
         quoteToken.approve(address(hive), type(uint256).max);
         vm.expectRevert("Batch size too large");
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
+        hive.placeOrder(prices, amounts, OrderType.BUY);
         vm.stopPrank();
     }
 
@@ -137,30 +138,30 @@ contract HiveCoreTest is Test {
         quoteToken.approve(address(hive), type(uint256).max);
         console.log("balance quote trader1", quoteToken.balanceOf(trader1) / 1e18);
         console.log("amouts", amounts[0] / 1e18);
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
+        hive.placeOrder(prices, amounts, OrderType.BUY);
         vm.stopPrank();
 
         vm.startPrank(trader2);
         baseToken.approve(address(hive), type(uint256).max);
         console.log("balance base trader2", baseToken.balanceOf(trader2));
         console.log("amouts", amounts[0] / 1e18);
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.SELL);
+        hive.placeOrder(prices, amounts, OrderType.SELL);
         vm.stopPrank();
 
         vm.startPrank(trader3);
         quoteToken.approve(address(hive), type(uint256).max);
         console.log("balance quote trader3", quoteToken.balanceOf(trader3));
-        hive.placeOrder(prices, amounts, HiveCore.OrderType.BUY);
+        hive.placeOrder(prices, amounts, OrderType.BUY);
         vm.stopPrank();
     }
 
     // Helper function to place a single order
-    function placeOrderHelper(address trader, uint256 price, uint256 amount, HiveCore.OrderType orderType)
+    function placeOrderHelper(address trader, uint256 price, uint256 amount, OrderType orderType)
         internal
         returns (uint256 orderId)
     {
         vm.startPrank(trader);
-        if (orderType == HiveCore.OrderType.BUY) {
+        if (orderType == OrderType.BUY) {
             quoteToken.approve(address(hive), (price * amount) / (10 ** baseToken.decimals()));
         } else {
             baseToken.approve(address(hive), amount);
@@ -177,7 +178,7 @@ contract HiveCoreTest is Test {
     // Test cancelOrder
     function testCancelOrder() public {
         // Place a buy order
-        uint256 orderId = placeOrderHelper(trader1, 100, 10, HiveCore.OrderType.BUY);
+        uint256 orderId = placeOrderHelper(trader1, 100, 10, OrderType.BUY);
 
         // Check order is active
         (,,,,,, bool active,) = hive.orders(orderId);
@@ -203,7 +204,7 @@ contract HiveCoreTest is Test {
     // Test updateOrder
     function testUpdateOrder() public {
         // Place a buy order
-        uint256 orderId = placeOrderHelper(trader1, 100, 10, HiveCore.OrderType.BUY);
+        uint256 orderId = placeOrderHelper(trader1, 100, 10, OrderType.BUY);
 
         // Update the order amount
         vm.prank(trader1);
@@ -230,7 +231,7 @@ contract HiveCoreTest is Test {
     // Test executeMarketOrder (Buy)
     function testExecuteBuyMarketOrder() public {
         // Place a sell order
-        placeOrderHelper(trader1, 100, 10, HiveCore.OrderType.SELL);
+        placeOrderHelper(trader1, 100, 10, OrderType.SELL);
 
         // Get initial balances
         uint256 initialTrader1QuoteBalance = quoteToken.balanceOf(trader1);
@@ -240,7 +241,7 @@ contract HiveCoreTest is Test {
         // Execute a buy market order
         vm.startPrank(trader2);
         quoteToken.approve(address(hive), (100 * 10) / (10 ** baseToken.decimals()));
-        hive.executeMarketOrder(10, HiveCore.OrderType.BUY);
+        hive.executeMarketOrder(10, OrderType.BUY);
         vm.stopPrank();
 
         // Check balances
@@ -260,7 +261,7 @@ contract HiveCoreTest is Test {
     // Test executeMarketOrder (Sell)
     function testExecuteSellMarketOrder() public {
         // Place a buy order
-        placeOrderHelper(trader1, 100, 10, HiveCore.OrderType.BUY);
+        placeOrderHelper(trader1, 100, 10, OrderType.BUY);
 
         // Get initial balances
         uint256 initialTrader1BaseBalance = baseToken.balanceOf(trader1);
@@ -270,7 +271,7 @@ contract HiveCoreTest is Test {
         // Execute a sell market order
         vm.startPrank(trader2);
         baseToken.approve(address(hive), 10);
-        hive.executeMarketOrder(10, HiveCore.OrderType.SELL);
+        hive.executeMarketOrder(10, OrderType.SELL);
         vm.stopPrank();
 
         // Check balances
@@ -293,9 +294,9 @@ contract HiveCoreTest is Test {
 
     function testExecuteMarketOrderMultiplePriceLevels() public {
         // Place sell orders at multiple price levels
-        placeOrderHelper(trader1, 100, 5, HiveCore.OrderType.SELL); // Price: 100, Amount: 5
-        placeOrderHelper(trader2, 105, 3, HiveCore.OrderType.SELL); // Price: 105, Amount: 3
-        placeOrderHelper(trader3, 110, 2, HiveCore.OrderType.SELL); // Price: 110, Amount: 2
+        placeOrderHelper(trader1, 100, 5, OrderType.SELL); // Price: 100, Amount: 5
+        placeOrderHelper(trader2, 105, 3, OrderType.SELL); // Price: 105, Amount: 3
+        placeOrderHelper(trader3, 110, 2, OrderType.SELL); // Price: 110, Amount: 2
 
         // Get initial balances
         uint256 initialTrader1QuoteBalance = quoteToken.balanceOf(trader1);
@@ -308,7 +309,7 @@ contract HiveCoreTest is Test {
         vm.startPrank(trader3);
         uint256 totalQuoteRequired = (100 * 5 + 105 * 3 + 110 * 2) / (10 ** baseToken.decimals());
         quoteToken.approve(address(hive), totalQuoteRequired);
-        hive.executeMarketOrder(10, HiveCore.OrderType.BUY);
+        hive.executeMarketOrder(10, OrderType.BUY);
         vm.stopPrank();
 
         // Check balances
@@ -341,8 +342,8 @@ contract HiveCoreTest is Test {
 
     function testExecuteMarketOrderWipeOutLiquidity() public {
         // Place sell orders
-        placeOrderHelper(trader1, 100, 5, HiveCore.OrderType.SELL); // Price: 100, Amount: 5
-        placeOrderHelper(trader2, 105, 3, HiveCore.OrderType.SELL); // Price: 105, Amount: 3
+        placeOrderHelper(trader1, 100, 5, OrderType.SELL); // Price: 100, Amount: 5
+        placeOrderHelper(trader2, 105, 3, OrderType.SELL); // Price: 105, Amount: 3
 
         // Get initial balances
         uint256 initialTrader1QuoteBalance = quoteToken.balanceOf(trader1);
@@ -354,7 +355,7 @@ contract HiveCoreTest is Test {
         vm.startPrank(trader3);
         uint256 totalQuoteRequired = (100 * 5 + 105 * 3) / (10 ** baseToken.decimals());
         quoteToken.approve(address(hive), totalQuoteRequired);
-        hive.executeMarketOrder(10, HiveCore.OrderType.BUY);
+        hive.executeMarketOrder(10, OrderType.BUY);
         vm.stopPrank();
 
         // Check balances
@@ -386,7 +387,7 @@ contract HiveCoreTest is Test {
 
     function testExecuteMarketOrderPartialFill() public {
         // Place sell orders
-        placeOrderHelper(trader1, 100, 5, HiveCore.OrderType.SELL); // Price: 100, Amount: 5
+        placeOrderHelper(trader1, 100, 5, OrderType.SELL); // Price: 100, Amount: 5
 
         // Get initial balances
         uint256 initialTrader1QuoteBalance = quoteToken.balanceOf(trader1);
@@ -397,7 +398,7 @@ contract HiveCoreTest is Test {
         vm.startPrank(trader2);
         uint256 totalQuoteRequired = (100 * 5) / (10 ** baseToken.decimals());
         quoteToken.approve(address(hive), totalQuoteRequired);
-        hive.executeMarketOrder(10, HiveCore.OrderType.BUY);
+        hive.executeMarketOrder(10, OrderType.BUY);
         vm.stopPrank();
 
         // Check balances
