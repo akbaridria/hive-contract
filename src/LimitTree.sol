@@ -182,24 +182,26 @@ contract LimitTree {
     }
 
     function getAscendingOrder() public view returns (uint256[] memory) {
-        uint256[] memory result = new uint256[](nodeCount);
+        uint256[] memory result = new uint256[](20);
         uint256 index = 0;
         inOrderTraversal(root, result, index);
         return result;
     }
 
     function inOrderTraversal(bytes32 nodeId, uint256[] memory result, uint256 index) private view returns (uint256) {
-        if (nodeId != bytes32(0)) {
+        if (nodeId != bytes32(0) && index < 20) {
             index = inOrderTraversal(nodes[nodeId].left, result, index);
-            result[index] = nodes[nodeId].value;
-            index++;
-            index = inOrderTraversal(nodes[nodeId].right, result, index);
+            if (index < 20) {
+                result[index] = nodes[nodeId].value;
+                index++;
+                index = inOrderTraversal(nodes[nodeId].right, result, index);
+            }
         }
         return index;
     }
 
     function getDescendingOrder() public view returns (uint256[] memory) {
-        uint256[] memory result = new uint256[](nodeCount);
+        uint256[] memory result = new uint256[](20);
         uint256 index = 0;
         reverseInOrderTraversal(root, result, index);
         return result;
@@ -210,11 +212,13 @@ contract LimitTree {
         view
         returns (uint256)
     {
-        if (nodeId != bytes32(0)) {
+        if (nodeId != bytes32(0) && index < 20) {
             index = reverseInOrderTraversal(nodes[nodeId].right, result, index);
-            result[index] = nodes[nodeId].value;
-            index++;
-            index = reverseInOrderTraversal(nodes[nodeId].left, result, index);
+            if (index < 20) {
+                result[index] = nodes[nodeId].value;
+                index++;
+                index = reverseInOrderTraversal(nodes[nodeId].left, result, index);
+            }
         }
         return index;
     }

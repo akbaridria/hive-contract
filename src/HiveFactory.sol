@@ -1,4 +1,4 @@
-
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 import "./HiveCore.sol";
@@ -11,6 +11,19 @@ contract HiveFactory is IHiveFactory {
     address[] public hiveCores;
 
     mapping(bytes32 => address) public getHiveCore;
+    mapping(address => address) public whitelistQuoteTokens;
+
+    modifier onlyQuoteToken(address quoteToken) {
+        require(whitelistQuoteTokens[quoteToken] != address(0), "HiveFactory: QUOTE_TOKEN_NOT_WHITELISTED");
+        _;
+    }
+
+    constructor(address[] memory quoteTokens) {
+        for (uint256 i = 0; i < quoteTokens.length; i++) {
+            require(quoteTokens[i] != address(0), "HiveFactory: INVALID_QUOTE_TOKEN");
+            whitelistQuoteTokens[quoteTokens[i]] = quoteTokens[i];
+        }
+    }
 
     /**
      * @dev Deploys a new HiveCore contract with the given base and quote tokens.
@@ -18,7 +31,12 @@ contract HiveFactory is IHiveFactory {
      * @param quoteToken The address of the quote token.
      * @return The address of the newly deployed HiveCore contract.
      */
-    function createHiveCore(address baseToken, address quoteToken) external override returns (address) {
+    function createHiveCore(address baseToken, address quoteToken)
+        external
+        override
+        onlyQuoteToken(quoteToken)
+        returns (address)
+    {
         require(baseToken != address(0), "HiveFactory: INVALID_BASE_TOKEN");
         require(quoteToken != address(0), "HiveFactory: INVALID_QUOTE_TOKEN");
         require(baseToken != quoteToken, "HiveFactory: IDENTICAL_TOKENS");
@@ -62,5 +80,18 @@ contract HiveFactory is IHiveFactory {
      */
     function getAllHiveCores() external view override returns (address[] memory) {
         return hiveCores;
+    }
+
+    /**
+     * @dev Adds a quote token to the whitelist.
+     * @param quoteToken The address of the quote token.
+     */
+    function addQuoteToken(address quoteToken) external override {
+        require(quoteToken != address(0), "HiveFactory: INVALID_QUOTE_TOKEN");
+        require(whitelistQuoteTokens[quoteToken] == address(0), "HiveFactory: QUOTE_TOKEN_ALREADY_WHITELISTED");
+
+        whitelistQuoteTokens[quoteToken] = quoteToken;
+
+        emit QuoteTokenAdded(quoteToken);
     }
 }

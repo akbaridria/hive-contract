@@ -41,9 +41,9 @@ contract HiveCore is IHiveCore {
      *  @param orderType The type of the order
      */
     function _placeOrder(uint256 price, uint256 amount, OrderType orderType) internal {
-        require(price > 0, "Price must be greater than 0");
-        require(amount > 0, "Amount must be greater than 0");
-        require(orderType == OrderType.BUY || orderType == OrderType.SELL, "Invalid order type");
+        require(price > 0, "HiveCore: INVALID_PRICE");
+        require(amount > 0, "HiveCore: INVALID_AMOUNT");
+        require(orderType == OrderType.BUY || orderType == OrderType.SELL, "HiveCore: INVALID_ORDER_TYPE");
 
         Order memory order = Order({
             trader: msg.sender,
@@ -77,8 +77,8 @@ contract HiveCore is IHiveCore {
      *  @param orderType The type of the order
      */
     function placeOrder(uint256[] memory price, uint256[] memory amount, OrderType orderType) public override {
-        require(price.length == amount.length, "Invalid input");
-        require(price.length <= MAX_BATCH_SIZE, "Batch size too large");
+        require(price.length == amount.length, "HiveCore: INVALID_INPUT");
+        require(price.length <= MAX_BATCH_SIZE, "HiveCore: BATCH_SIZE_TOO_LARGE");
 
         uint256 totalAmount;
         uint256 totalQuoteAmount;
@@ -111,12 +111,12 @@ contract HiveCore is IHiveCore {
         uint256[] memory listBids = buyTree.getAscendingOrder();
         uint256[] memory listAsks = sellTree.getDescendingOrder();
 
-        if (listBids.length == 0 || listAsks.length == 0) {
-            return;
-        }
-
         uint256 bestBid = listBids[0];
         uint256 bestAsk = listAsks[0];
+
+        if (bestBid == 0 || bestAsk == 0) {
+            return;
+        }
 
         if (bestBid >= bestAsk) {
             // execute trade
@@ -160,8 +160,8 @@ contract HiveCore is IHiveCore {
      *  @param id The ID of the order to cancel
      */
     function cancelOrder(uint256 id) public override {
-        require(orders[id].trader == msg.sender, "Only the trader can cancel the order");
-        require(orders[id].active, "Order is already inactive");
+        require(orders[id].trader == msg.sender, "HiveCore: UNAUTHORIZED");
+        require(orders[id].active, "HiveCore: ORDER_INACTIVE");
 
         Order storage order = orders[id];
         order.active = false;
@@ -197,14 +197,14 @@ contract HiveCore is IHiveCore {
      *  @param newAmount The new amount of the order
      */
     function updateOrder(uint256 id, uint256 newAmount) public override {
-        require(orders[id].trader == msg.sender, "Only the trader can update the order");
-        require(orders[id].active, "Order is inactive");
-        require(newAmount > 0, "Amount must be greater than 0");
+        require(orders[id].trader == msg.sender, "HiveCore: UNAUTHORIZED");
+        require(orders[id].active, "HiveCore: ORDER_INACTIVE");
+        require(newAmount > 0, "HiveCore: INVALID_AMOUNT");
 
         Order storage order = orders[id];
 
         // Ensure the new amount is not less than the filled amount
-        require(newAmount > order.filled, "New amount must be greater than or equal to filled amount");
+        require(newAmount > order.filled, "HiveCore: AMOUNT_LESS_THAN_FILLED");
 
         // Calculate the difference in amount
         uint256 amountDifference;
@@ -240,7 +240,7 @@ contract HiveCore is IHiveCore {
      * @param orderType The type of the order (BUY or SELL).
      */
     function executeMarketOrder(uint256 amount, OrderType orderType) public override {
-        require(amount > 0, "Amount must be greater than 0");
+        require(amount > 0, "HiveCore: INVALID_AMOUNT");
 
         if (orderType == OrderType.BUY) {
             _executeBuyMarketOrder(amount);

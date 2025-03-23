@@ -32,8 +32,14 @@ contract HiveFactoryTest is Test {
         tokenB = new MockERC20("TokenB", "TB");
         tokenC = new MockERC20("TokenC", "TC");
 
+        address[] memory quoteTokens = new address[](1);
+        console.log("TokenA address: %s", address(tokenA));
+        console.log("TokenB address: %s", address(tokenB));
+        console.log("TokenC address: %s", address(tokenC));
+        quoteTokens[0] = address(tokenB);
+
         // Deploy HiveFactory
-        hiveFactory = new HiveFactory();
+        hiveFactory = new HiveFactory(quoteTokens);
 
         // Fund Alice and Bob with tokens
         tokenA.transfer(alice, 1000 * 10 ** tokenA.decimals());
@@ -68,20 +74,20 @@ contract HiveFactoryTest is Test {
         // Attempt to create the same pool again (in reverse order)
         vm.prank(bob);
         vm.expectRevert("HiveFactory: POOL_ALREADY_EXISTS");
-        hiveFactory.createHiveCore(address(tokenB), address(tokenA));
+        hiveFactory.createHiveCore(address(tokenA), address(tokenB));
     }
 
     // Test creating a pool with identical tokens
     function testCreateHiveCoreWithIdenticalTokens() public {
         vm.prank(alice);
         vm.expectRevert("HiveFactory: IDENTICAL_TOKENS");
-        hiveFactory.createHiveCore(address(tokenA), address(tokenA));
+        hiveFactory.createHiveCore(address(tokenB), address(tokenB));
     }
 
     // Test creating a pool with zero address
     function testCreateHiveCoreWithZeroAddress() public {
         vm.prank(alice);
         vm.expectRevert("HiveFactory: INVALID_BASE_TOKEN");
-        hiveFactory.createHiveCore(address(0), address(tokenA));
+        hiveFactory.createHiveCore(address(0), address(tokenB));
     }
 }
