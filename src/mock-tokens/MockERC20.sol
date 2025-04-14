@@ -19,7 +19,7 @@ contract MockERC20 is ERC20, Ownable, ERC20Permit {
     }
 
     function mint() public {
-        uint256 amount = 1000000 * 10 ** DECIMALS;
+        uint256 amount = 100 * 10 ** DECIMALS;
         _mint(msg.sender, amount);
     }
 

@@ -2,7 +2,6 @@
 pragma solidity ^0.8.0;
 
 import "./LimitTree.sol";
-import "forge-std/console.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IHiveCore.sol";
@@ -15,13 +14,15 @@ contract HiveCore is IHiveCore {
     ERC20 private immutable quoteToken;
 
     mapping(uint256 => Order) public orders;
-    mapping(uint256 => uint256) public buyOrderAtPrices;
-    mapping(uint256 => uint256) public sellOrderAtPrices;
+    mapping(address => uint256[]) public userOrderIds;
+    mapping(uint256 => PriceLevel) public buyOrderAtPrices;
+    mapping(uint256 => PriceLevel) public sellOrderAtPrices;
 
     LimitTree private buyTree;
     LimitTree private sellTree;
 
     uint256 public orderId;
+    uint256 public latestPrice; // Stores the most recent trade price
 
     constructor(address _baseToken, address _quoteToken) {
         baseToken = ERC20(_baseToken);
@@ -53,21 +54,83 @@ contract HiveCore is IHiveCore {
             timestamp: block.timestamp,
             orderType: orderType,
             active: true,
-            next: OrderType.BUY == orderType ? buyOrderAtPrices[price] : sellOrderAtPrices[price]
+            next: orderType == OrderType.BUY ? buyOrderAtPrices[price].headOrderId : sellOrderAtPrices[price].headOrderId
         });
 
         orderId++;
         orders[orderId] = order;
+        userOrderIds[msg.sender].push(orderId);
 
         if (orderType == OrderType.BUY) {
             buyTree.insert(price);
-            buyOrderAtPrices[price] = orderId;
+            buyOrderAtPrices[price].headOrderId = orderId;
+            buyOrderAtPrices[price].totalLiquidity += amount;
+            if (sellOrderAtPrices[price].headOrderId != 0) {
+                _matchOrder(price);
+            }
         } else {
             sellTree.insert(price);
-            sellOrderAtPrices[price] = orderId;
+            sellOrderAtPrices[price].headOrderId = orderId;
+            sellOrderAtPrices[price].totalLiquidity += amount;
+            if (buyOrderAtPrices[price].headOrderId != 0) {
+                _matchOrder(price);
+            }
         }
 
         emit OrderCreated(msg.sender, price, amount, orderType);
+    }
+
+    /**
+     *  @dev Match orders to execute trade
+     */
+    function _matchOrder(uint256 price) internal {
+        while (buyOrderAtPrices[price].headOrderId != 0 && sellOrderAtPrices[price].headOrderId != 0) {
+            uint256 buyOrderId = buyOrderAtPrices[price].headOrderId;
+            uint256 sellOrderId = sellOrderAtPrices[price].headOrderId;
+
+            Order storage buyOrder = orders[buyOrderId];
+            Order storage sellOrder = orders[sellOrderId];
+
+            uint256 tradeAmount = Math.min(buyOrder.amount - buyOrder.filled, sellOrder.amount - sellOrder.filled);
+            uint256 tradeValue = _calculateQuoteAmount(tradeAmount, price);
+
+            quoteToken.transfer(sellOrder.trader, tradeValue);
+            baseToken.transfer(buyOrder.trader, tradeAmount);
+
+            // Update the latest price
+            latestPrice = price;
+            emit TradeExecuted(buyOrder.trader, sellOrder.trader, tradeAmount, latestPrice);
+
+            // Update filled amounts
+            buyOrder.filled += tradeAmount;
+            sellOrder.filled += tradeAmount;
+
+            // Update price level liquidity
+            buyOrderAtPrices[price].totalLiquidity -= tradeAmount;
+            sellOrderAtPrices[price].totalLiquidity -= tradeAmount;
+
+            // If buy order is fully filled
+            if (buyOrder.filled == buyOrder.amount) {
+                buyOrder.active = false;
+                buyOrderAtPrices[price].headOrderId = buyOrder.next;
+            }
+
+            // If sell order is fully filled
+            if (sellOrder.filled == sellOrder.amount) {
+                sellOrder.active = false;
+                sellOrderAtPrices[price].headOrderId = sellOrder.next;
+            }
+        }
+
+        // Remove price level if no more orders
+        if (buyOrderAtPrices[price].headOrderId == 0) {
+            buyTree.deleteValue(price);
+            delete buyOrderAtPrices[price];
+        }
+        if (sellOrderAtPrices[price].headOrderId == 0) {
+            sellTree.deleteValue(price);
+            delete sellOrderAtPrices[price];
+        }
     }
 
     /**
@@ -84,7 +147,7 @@ contract HiveCore is IHiveCore {
         uint256 totalQuoteAmount;
         for (uint256 i = 0; i < price.length; i++) {
             if (orderType == OrderType.BUY) {
-                totalQuoteAmount += (price[i] * amount[i]) / (10 ** baseToken.decimals());
+                totalQuoteAmount += _calculateQuoteAmount(amount[i], price[i]);
             } else {
                 totalAmount += amount[i];
             }
@@ -98,60 +161,6 @@ contract HiveCore is IHiveCore {
 
         for (uint256 i = 0; i < price.length; i++) {
             _placeOrder(price[i], amount[i], orderType);
-        }
-
-        // match orders to executed trade if there's a match
-        _matchOrder();
-    }
-
-    /**
-     *  @dev Match orders to execute trade
-     */
-    function _matchOrder() internal {
-        uint256[] memory listBids = buyTree.getAscendingOrder();
-        uint256[] memory listAsks = sellTree.getDescendingOrder();
-
-        uint256 bestBid = listBids[0];
-        uint256 bestAsk = listAsks[0];
-
-        if (bestBid == 0 || bestAsk == 0) {
-            return;
-        }
-
-        if (bestBid >= bestAsk) {
-            // execute trade
-            while (buyOrderAtPrices[bestBid] != 0 && sellOrderAtPrices[bestAsk] != 0) {
-                uint256 buyOrderId = buyOrderAtPrices[bestBid];
-                uint256 sellOrderId = sellOrderAtPrices[bestAsk];
-
-                Order storage buyOrder = orders[buyOrderId];
-                Order storage sellOrder = orders[sellOrderId];
-
-                uint256 tradeAmount = Math.min(buyOrder.amount - buyOrder.filled, sellOrder.amount - sellOrder.filled);
-                uint256 tradeValue = (tradeAmount * bestBid) / (10 ** baseToken.decimals());
-
-                quoteToken.transfer(sellOrder.trader, tradeValue);
-                baseToken.transfer(buyOrder.trader, tradeAmount);
-
-                buyOrder.filled += tradeAmount;
-                sellOrder.filled += tradeAmount;
-
-                if (buyOrder.filled == buyOrder.amount) {
-                    buyOrder.active = false;
-                    buyOrderAtPrices[bestBid] = buyOrder.next;
-                }
-
-                if (sellOrder.filled == sellOrder.amount) {
-                    sellOrder.active = false;
-                    sellOrderAtPrices[bestAsk] = sellOrder.next;
-                }
-            }
-            if (buyOrderAtPrices[bestBid] == 0) {
-                buyTree.deleteValue(bestBid);
-            }
-            if (sellOrderAtPrices[bestAsk] == 0) {
-                sellTree.deleteValue(bestAsk);
-            }
         }
     }
 
@@ -167,24 +176,56 @@ contract HiveCore is IHiveCore {
         order.active = false;
 
         uint256 price = order.price;
-        if (order.orderType == OrderType.BUY) {
-            buyOrderAtPrices[price] = order.next;
-            if (buyOrderAtPrices[price] == 0) {
-                buyTree.deleteValue(price);
-            }
-        } else {
-            sellOrderAtPrices[price] = order.next;
-            if (sellOrderAtPrices[price] == 0) {
-                sellTree.deleteValue(price);
-            }
-        }
+        uint256 remainingAmount = order.amount - order.filled;
 
-        // Refund the remaining amount
         if (order.orderType == OrderType.BUY) {
-            uint256 remainingAmount = (order.amount - order.filled) * order.price / (10 ** baseToken.decimals());
-            quoteToken.transfer(msg.sender, remainingAmount);
+            // Update price level liquidity
+            buyOrderAtPrices[price].totalLiquidity -= remainingAmount;
+
+            // Update order chain
+            if (buyOrderAtPrices[price].headOrderId == id) {
+                buyOrderAtPrices[price].headOrderId = order.next;
+            } else {
+                // Need to find the previous order in the chain
+                uint256 prevOrderId = buyOrderAtPrices[price].headOrderId;
+                while (orders[prevOrderId].next != id) {
+                    prevOrderId = orders[prevOrderId].next;
+                }
+                orders[prevOrderId].next = order.next;
+            }
+
+            // Remove price level if no more orders
+            if (buyOrderAtPrices[price].headOrderId == 0) {
+                buyTree.deleteValue(price);
+                delete buyOrderAtPrices[price];
+            }
+
+            // Refund
+            uint256 refundQuote = _calculateQuoteAmount(remainingAmount, price);
+            quoteToken.transfer(msg.sender, refundQuote);
         } else {
-            uint256 remainingAmount = order.amount - order.filled;
+            // Update price level liquidity
+            sellOrderAtPrices[price].totalLiquidity -= remainingAmount;
+
+            // Update order chain
+            if (sellOrderAtPrices[price].headOrderId == id) {
+                sellOrderAtPrices[price].headOrderId = order.next;
+            } else {
+                // Need to find the previous order in the chain
+                uint256 prevOrderId = sellOrderAtPrices[price].headOrderId;
+                while (orders[prevOrderId].next != id) {
+                    prevOrderId = orders[prevOrderId].next;
+                }
+                orders[prevOrderId].next = order.next;
+            }
+
+            // Remove price level if no more orders
+            if (sellOrderAtPrices[price].headOrderId == 0) {
+                sellTree.deleteValue(price);
+                delete sellOrderAtPrices[price];
+            }
+
+            // Refund
             baseToken.transfer(msg.sender, remainingAmount);
         }
 
@@ -212,7 +253,7 @@ contract HiveCore is IHiveCore {
             amountDifference = newAmount - order.amount;
             // Transfer additional tokens from the trader
             if (order.orderType == OrderType.BUY) {
-                uint256 additionalQuote = (amountDifference * order.price) / (10 ** baseToken.decimals());
+                uint256 additionalQuote = _calculateQuoteAmount(amountDifference, order.price);
                 quoteToken.transferFrom(msg.sender, address(this), additionalQuote);
             } else {
                 baseToken.transferFrom(msg.sender, address(this), amountDifference);
@@ -221,7 +262,7 @@ contract HiveCore is IHiveCore {
             amountDifference = order.amount - newAmount;
             // Refund excess tokens to the trader
             if (order.orderType == OrderType.BUY) {
-                uint256 refundQuote = (amountDifference * order.price) / (10 ** baseToken.decimals());
+                uint256 refundQuote = _calculateQuoteAmount(amountDifference, order.price);
                 quoteToken.transfer(msg.sender, refundQuote);
             } else {
                 baseToken.transfer(msg.sender, amountDifference);
@@ -236,7 +277,8 @@ contract HiveCore is IHiveCore {
 
     /**
      * @dev Executes a market order.
-     * @param amount The amount of the order.
+     * @param amount For BUY orders: amount of quoteToken to spend buying baseToken.
+     *               For SELL orders: amount of baseToken to sell for quoteToken.
      * @param orderType The type of the order (BUY or SELL).
      */
     function executeMarketOrder(uint256 amount, OrderType orderType) public override {
@@ -252,99 +294,148 @@ contract HiveCore is IHiveCore {
     }
 
     /**
-     * @dev Executes a buy market order.
-     * @param amount The amount of the order.
+     * @dev Executes a buy market order (amount in quoteToken).
+     * @param quoteAmount The amount of quoteToken to spend.
      */
-    function _executeBuyMarketOrder(uint256 amount) private {
-        uint256 remainingAmount = amount;
+    function _executeBuyMarketOrder(uint256 quoteAmount) private {
+        uint256 remainingQuote = quoteAmount;
         uint256[] memory sellPrices = sellTree.getAscendingOrder();
 
-        for (uint256 i = 0; i < sellPrices.length; i++) {
+        // Transfer the full amount upfront (simpler accounting)
+        quoteToken.transferFrom(msg.sender, address(this), quoteAmount);
+
+        for (uint256 i = 0; i < sellPrices.length && remainingQuote > 0; i++) {
             uint256 price = sellPrices[i];
-            uint256 sellOrderId = sellOrderAtPrices[price];
+            uint256 sellOrderId = sellOrderAtPrices[price].headOrderId;
 
-            while (sellOrderId != 0 && remainingAmount > 0) {
+            while (sellOrderId != 0 && remainingQuote > 0) {
                 Order storage sellOrder = orders[sellOrderId];
+                uint256 availableBase = sellOrder.amount - sellOrder.filled;
 
-                uint256 tradeAmount = Math.min(sellOrder.amount - sellOrder.filled, remainingAmount);
-                uint256 tradeValue = (tradeAmount * price) / (10 ** baseToken.decimals());
+                // Calculate maximum base token amount we can buy with remaining quote
+                uint256 maxBaseForRemainingQuote = _calculateBaseAmount(remainingQuote, price);
+                uint256 baseToTrade = Math.min(availableBase, maxBaseForRemainingQuote);
 
-                // Transfer tokens
-                quoteToken.transferFrom(msg.sender, sellOrder.trader, tradeValue);
-                baseToken.transfer(msg.sender, tradeAmount);
+                // Calculate required quote token amount using the same precision logic
+                uint256 quoteToSpend = _calculateQuoteAmount(baseToTrade, price);
 
-                // Update order and remaining amount
-                sellOrder.filled += tradeAmount;
-                remainingAmount -= tradeAmount;
+                // Execute trade
+                quoteToken.transfer(sellOrder.trader, quoteToSpend);
+                baseToken.transfer(msg.sender, baseToTrade);
 
-                // If the sell order is fully filled, deactivate it
+                // Update state
+                latestPrice = price;
+                emit TradeExecuted(msg.sender, sellOrder.trader, baseToTrade, latestPrice);
+
+                sellOrder.filled += baseToTrade;
+                sellOrderAtPrices[price].totalLiquidity -= baseToTrade;
+                remainingQuote -= quoteToSpend;
+
+                // Clean up filled orders
                 if (sellOrder.filled == sellOrder.amount) {
                     sellOrder.active = false;
-                    sellOrderAtPrices[price] = sellOrder.next;
+                    sellOrderAtPrices[price].headOrderId = sellOrder.next;
                 }
 
-                // Move to the next sell order at the same price
                 sellOrderId = sellOrder.next;
             }
 
-            // If no more sell orders at this price, remove the price from the sellTree
-            if (sellOrderAtPrices[price] == 0) {
+            // Clean up empty price levels
+            if (sellOrderAtPrices[price].headOrderId == 0) {
                 sellTree.deleteValue(price);
+                delete sellOrderAtPrices[price];
             }
+        }
 
-            // Stop if the market order is fully filled
-            if (remainingAmount == 0) {
-                break;
-            }
+        // Return unused quote if any
+        if (remainingQuote > 0) {
+            quoteToken.transfer(msg.sender, remainingQuote);
         }
     }
 
     /**
-     * @dev Executes a sell market order.
-     * @param amount The amount of the order.
+     * @dev Executes a sell market order (amount in baseToken).
+     * @param baseAmount The amount of baseToken to sell.
      */
-    function _executeSellMarketOrder(uint256 amount) private {
-        uint256 remainingAmount = amount;
+    function _executeSellMarketOrder(uint256 baseAmount) private {
+        uint256 remainingBase = baseAmount;
         uint256[] memory buyPrices = buyTree.getDescendingOrder();
 
-        for (uint256 i = 0; i < buyPrices.length; i++) {
+        // Transfer the full amount upfront
+        baseToken.transferFrom(msg.sender, address(this), baseAmount);
+
+        for (uint256 i = 0; i < buyPrices.length && remainingBase > 0; i++) {
             uint256 price = buyPrices[i];
-            uint256 buyOrderId = buyOrderAtPrices[price];
+            uint256 buyOrderId = buyOrderAtPrices[price].headOrderId;
 
-            while (buyOrderId != 0 && remainingAmount > 0) {
+            while (buyOrderId != 0 && remainingBase > 0) {
                 Order storage buyOrder = orders[buyOrderId];
+                uint256 availableBase = buyOrder.amount - buyOrder.filled;
+                uint256 baseToTrade = Math.min(availableBase, remainingBase);
 
-                uint256 tradeAmount = Math.min(buyOrder.amount - buyOrder.filled, remainingAmount);
-                uint256 tradeValue = (tradeAmount * price) / (10 ** baseToken.decimals());
+                // Calculate quote tokens to receive using proper decimal handling
+                uint256 quoteToReceive = _calculateQuoteAmount(baseToTrade, price);
 
-                // Transfer tokens
-                baseToken.transferFrom(msg.sender, buyOrder.trader, tradeAmount);
-                quoteToken.transfer(msg.sender, tradeValue);
+                // Execute the trade
+                baseToken.transfer(buyOrder.trader, baseToTrade);
+                quoteToken.transfer(msg.sender, quoteToReceive);
 
-                // Update order and remaining amount
-                buyOrder.filled += tradeAmount;
-                remainingAmount -= tradeAmount;
+                // Update state
+                latestPrice = price;
+                emit TradeExecuted(buyOrder.trader, msg.sender, baseToTrade, latestPrice);
 
-                // If the buy order is fully filled, deactivate it
+                buyOrder.filled += baseToTrade;
+                buyOrderAtPrices[price].totalLiquidity -= baseToTrade;
+                remainingBase -= baseToTrade;
+
+                // Clean up filled orders
                 if (buyOrder.filled == buyOrder.amount) {
                     buyOrder.active = false;
-                    buyOrderAtPrices[price] = buyOrder.next;
+                    buyOrderAtPrices[price].headOrderId = buyOrder.next;
                 }
 
-                // Move to the next buy order at the same price
                 buyOrderId = buyOrder.next;
             }
 
-            // If no more buy orders at this price, remove the price from the buyTree
-            if (buyOrderAtPrices[price] == 0) {
+            // Clean up empty price levels
+            if (buyOrderAtPrices[price].headOrderId == 0) {
                 buyTree.deleteValue(price);
-            }
-
-            // Stop if the market order is fully filled
-            if (remainingAmount == 0) {
-                break;
+                delete buyOrderAtPrices[price];
             }
         }
+
+        // Return unused base if any
+        if (remainingBase > 0) {
+            baseToken.transfer(msg.sender, remainingBase);
+        }
+    }
+
+    /**
+     * @param baseAmount Amount of baseToken (in baseToken's smallest units)
+     * @param price Price of 1 baseToken in quoteToken's smallest units
+     * @return quoteAmount Amount of quoteToken (in quoteToken's smallest units)
+     */
+    function _calculateQuoteAmount(uint256 baseAmount, uint256 price) internal view returns (uint256) {
+        uint256 baseDecimals = baseToken.decimals();
+        uint256 quoteAmount = (baseAmount * price) / (10 ** baseDecimals);
+
+        // Protection against truncation to zero
+        require(quoteAmount > 0, "HiveCore: QUOTE_AMOUNT_TOO_SMALL");
+        return quoteAmount;
+    }
+
+    /**
+     * @param quoteAmount Amount of quoteToken (in quoteToken's smallest units)
+     * @param price Price of 1 baseToken in quoteToken's smallest units
+     * @return baseAmount Amount of baseToken (in baseToken's smallest units)
+     */
+    function _calculateBaseAmount(uint256 quoteAmount, uint256 price) internal view returns (uint256) {
+        uint256 baseDecimals = baseToken.decimals();
+        uint256 baseAmount = (quoteAmount * (10 ** baseDecimals)) / price;
+
+        // Protection against truncation to zero
+        require(baseAmount > 0, "HiveCore: BASE_AMOUNT_TOO_SMALL");
+        return baseAmount;
     }
 
     /**
@@ -361,5 +452,65 @@ contract HiveCore is IHiveCore {
      */
     function getSellTreePrices() public view override returns (uint256[] memory) {
         return sellTree.getDescendingOrder();
+    }
+
+    /**
+     * @dev get base token address
+     * @return The address of the base token
+     */
+    function getBaseToken() public view override returns (address) {
+        return address(baseToken);
+    }
+
+    /**
+     * @dev get quote token address
+     * @return The address of the quote token
+     */
+    function getQuoteToken() public view override returns (address) {
+        return address(quoteToken);
+    }
+
+    /**
+     * @dev get latest trade price
+     * @return The latest trade price
+     */
+    function getLatestPrice() public view override returns (uint256) {
+        return latestPrice;
+    }
+
+    /**
+     * @dev get user order ids
+     * @param user The address of the user
+     * @return The order ids of the user
+     */
+    function getUserOrderIds(address user) external view override returns (uint256[] memory) {
+        return userOrderIds[user];
+    }
+
+    /**
+     * @dev get order details
+     * @param id The id of the order
+     * @return The order details
+     */
+    function getOrder(uint256 id) external view override returns (Order memory) {
+        return orders[id];
+    }
+
+    /**
+     *  @dev Get total liquidity at a buy price level
+     *  @param price The price level to check
+     *  @return The total liquidity at that price level
+     */
+    function getBuyLiquidityAtPrice(uint256 price) external view override returns (uint256) {
+        return buyOrderAtPrices[price].totalLiquidity;
+    }
+
+    /**
+     *  @dev Get total liquidity at a sell price level
+     *  @param price The price level to check
+     *  @return The total liquidity at that price level
+     */
+    function getSellLiquidityAtPrice(uint256 price) external view override returns (uint256) {
+        return sellOrderAtPrices[price].totalLiquidity;
     }
 }

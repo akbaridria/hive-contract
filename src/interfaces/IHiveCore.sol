@@ -7,6 +7,7 @@ interface IHiveCore {
     event OrderCreated(address indexed trader, uint256 price, uint256 amount, OrderType orderType);
     event OrderCancelled(uint256 indexed orderId);
     event OrderUpdated(uint256 indexed orderId, uint256 newAmount);
+    event TradeExecuted(address indexed buyer, address indexed seller, uint256 price, uint256 amount);
 
     function placeOrder(uint256[] memory price, uint256[] memory amount, OrderType orderType) external;
     function cancelOrder(uint256 id) external;
@@ -14,4 +15,11 @@ interface IHiveCore {
     function executeMarketOrder(uint256 amount, OrderType orderType) external;
     function getBuyTreePrices() external view returns (uint256[] memory);
     function getSellTreePrices() external view returns (uint256[] memory);
+    function getBaseToken() external view returns (address);
+    function getQuoteToken() external view returns (address);
+    function getLatestPrice() external view returns (uint256);
+    function getOrder(uint256 id) external view returns (Order memory);
+    function getUserOrderIds(address user) external view returns (uint256[] memory);
+    function getBuyLiquidityAtPrice(uint256 price) external view returns (uint256);
+    function getSellLiquidityAtPrice(uint256 price) external view returns (uint256);
 }

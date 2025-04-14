@@ -3,18 +3,33 @@ pragma solidity ^0.8.19;
 
 import "forge-std/Script.sol";
 import "../src/HiveFactory.sol";
-import "../src/MockERC20.sol";
+import "../src/mock-tokens/MockERC20.sol";
 
-contract CounterScript is Script {
+contract HiveDeployment is Script {
     function run() public {
         vm.startBroadcast();
+
+        MockERC20 btcToken  = new MockERC20(msg.sender, msg.sender, "BTC Token", "BTC", 8);
+        console.log("BTC Token deployed at:", address(btcToken));
+        MockERC20 dummyX = new MockERC20(msg.sender, msg.sender, "DummyX Token", "DUMX", 18);
+        console.log("DummyX Token deployed at:", address(dummyX));
+        MockERC20 dummyY = new MockERC20(msg.sender, msg.sender, "DummyY Token", "DUMY", 18);
+        console.log("DummyY Token deployed at:", address(dummyY));
+        MockERC20 idrxToken = new MockERC20(msg.sender, msg.sender, "IDRX", "IDRX", 2);
+        console.log("IDRX Token deployed at:", address(idrxToken));
         
-        HiveFactory hiveFactory = new HiveFactory();
+        address[] memory quoteTokens = new address[](1);
+        quoteTokens[0] = address(idrxToken);
+        HiveFactory hiveFactory = new HiveFactory(quoteTokens);
         console.log("HiveFactory deployed at:", address(hiveFactory));
 
-        // deploy mock erc20 for BTC, USDC, USDT AND ETH
-        MockERC20  = new MockERC20(address(this), address(this), "Base Token", "BASE", 18);
-        console.log("Base Token deployed at:", address(baseToken));
+        // IDRX QUOTE
+        address btc_usdc = hiveFactory.createHiveCore(address(btcToken), address(idrxToken));
+        console.log("HiveCore BTC/IDRX deployed at:", btc_usdc);
+        address dummyx_idrx = hiveFactory.createHiveCore(address(dummyX), address(idrxToken));
+        console.log("HiveCore DUMX/IDRX deployed at:", dummyx_idrx);
+        address dummyy_idrx = hiveFactory.createHiveCore(address(dummyY), address(idrxToken));
+        console.log("HiveCore DUMY/IDRX deployed at:", dummyy_idrx);
         
         vm.stopBroadcast();
     }

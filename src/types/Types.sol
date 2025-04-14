@@ -16,3 +16,8 @@ struct Order {
     bool active;
     uint256 next;
 }
+
+struct PriceLevel {
+    uint256 headOrderId;
+    uint256 totalLiquidity;
+}
