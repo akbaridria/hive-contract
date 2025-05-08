@@ -6,264 +6,596 @@ import "../src/HiveCore.sol";
 import "../src/types/Types.sol";
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
-// Mock ERC20 token for testing
-contract MockToken is ERC20 {
+contract MockERC20 is ERC20 {
     constructor(string memory name, string memory symbol) ERC20(name, symbol) {
-        _mint(msg.sender, 1000000 * 10 ** 18);
+        _mint(msg.sender, 1000000 * 10 ** decimals());
+    }
+
+    function mint(address to, uint256 amount) public {
+        _mint(to, amount);
     }
 }
 
 contract HiveCoreTest is Test {
-    HiveCore public hive;
-    MockToken public baseToken;
-    MockToken public quoteToken;
-    address public trader1;
-    address public trader2;
-    address public trader3;
+    HiveCore public hiveCore;
+    MockERC20 public baseToken;
+    MockERC20 public quoteToken;
+
+    address public alice = address(0x1);
+    address public bob = address(0x2);
+    address public charlie = address(0x3);
 
     function setUp() public {
-        // Create mock tokens
-        baseToken = new MockToken("Base Token", "BASE");
-        quoteToken = new MockToken("Quote Token", "QUOTE");
+        baseToken = new MockERC20("Base Token", "BASE");
+        quoteToken = new MockERC20("Quote Token", "QUOTE");
 
-        // Deploy HiveCore
-        hive = new HiveCore(address(baseToken), address(quoteToken));
+        hiveCore = new HiveCore(address(baseToken), address(quoteToken));
 
-        // Setup test accounts
-        trader1 = address(0x1);
-        trader2 = address(0x2);
-        trader3 = address(0x3);
+        // Distribute tokens to test users
+        baseToken.mint(alice, 1000 * 10 ** baseToken.decimals());
+        baseToken.mint(bob, 1000 * 10 ** baseToken.decimals());
+        baseToken.mint(charlie, 1000 * 10 ** baseToken.decimals());
 
-        // Fund test accounts
-        vm.startPrank(address(this));
-        baseToken.transfer(trader1, 1000 ether);
-        baseToken.transfer(trader2, 1000 ether);
-        baseToken.transfer(trader3, 1000 ether);
-        quoteToken.transfer(trader1, 1000 ether);
-        quoteToken.transfer(trader2, 1000 ether);
-        quoteToken.transfer(trader3, 1000 ether);
-
-        vm.startPrank(trader1);
-        quoteToken.approve(address(hive), type(uint256).max);
-        baseToken.approve(address(hive), type(uint256).max);
-        vm.stopPrank();
-
-        vm.startPrank(trader2);
-        quoteToken.approve(address(hive), type(uint256).max);
-        baseToken.approve(address(hive), type(uint256).max);
-        vm.stopPrank();
-
-        vm.startPrank(trader3);
-        quoteToken.approve(address(hive), type(uint256).max);
-        baseToken.approve(address(hive), type(uint256).max);
-        vm.stopPrank();
+        quoteToken.mint(alice, 1000 * 10 ** quoteToken.decimals());
+        quoteToken.mint(bob, 1000 * 10 ** quoteToken.decimals());
+        quoteToken.mint(charlie, 1000 * 10 ** quoteToken.decimals());
     }
 
-    function testFlow() public {
-        console.log("Starting testFlow function");
-
-        // test flow
-        // place buy order at price 10, 20, 30, 40, 50 quote token
-        // place sell order at price 50, 60, 70, 80, 40 base token
-
-        uint8 decimalBase = baseToken.decimals();
-        uint8 decimalQuote = quoteToken.decimals();
-        uint256 baseMultiplier = 10 ** uint256(decimalBase);
-        uint256 quoteMultiplier = 10 ** uint256(decimalQuote);
-
-        console.log("Base token decimals:", decimalBase);
-        console.log("Quote token decimals:", decimalQuote);
-        console.log("Base multiplier:", baseMultiplier);
-        console.log("Quote multiplier:", quoteMultiplier);
-
-        // Log initial balances
-        console.log("\n--- Initial Balances ---");
-        console.log("Trader1 base token balance:", baseToken.balanceOf(trader1) / baseMultiplier);
-        console.log("Trader1 quote token balance:", quoteToken.balanceOf(trader1) / quoteMultiplier);
-        console.log("Trader2 base token balance:", baseToken.balanceOf(trader2) / baseMultiplier);
-        console.log("Trader2 quote token balance:", quoteToken.balanceOf(trader2) / quoteMultiplier);
-        console.log("Hive contract base token balance:", baseToken.balanceOf(address(hive)) / baseMultiplier);
-        console.log("Hive contract quote token balance:", quoteToken.balanceOf(address(hive)) / quoteMultiplier);
-
-        // Fixed price arrays with correct multiplier usage
-        uint256[5] memory buyPrices = [
-            uint256(10) * quoteMultiplier,
-            uint256(20) * quoteMultiplier,
-            uint256(30) * quoteMultiplier,
-            uint256(40) * quoteMultiplier,
-            uint256(50) * quoteMultiplier
-        ];
-
-        uint256[5] memory sellPrices = [
-            uint256(50) * quoteMultiplier,
-            uint256(60) * quoteMultiplier,
-            uint256(70) * quoteMultiplier,
-            uint256(80) * quoteMultiplier,
-            uint256(40) * quoteMultiplier
-        ];
-
-        console.log("\n--- Placing BUY orders as trader1 ---");
-        vm.startPrank(trader1);
-        console.log("Address of trader1", address(trader1));
-        for (uint256 i = 0; i < buyPrices.length; i++) {
-            uint256[] memory prices = new uint256[](1);
-            uint256[] memory amounts = new uint256[](1);
-
-            prices[0] = buyPrices[i];
-            amounts[0] = baseMultiplier; // Amount in base token units
-
-            console.log("Order amount:", amounts[0] / baseMultiplier, "base tokens");
-
-            // Log balances before order
-            console.log("  Before - Trader1 base:", baseToken.balanceOf(trader1) / baseMultiplier);
-            console.log("  Before - Trader1 quote:", quoteToken.balanceOf(trader1) / quoteMultiplier);
-
-            hive.placeOrder(prices, amounts, OrderType.BUY);
-
-            // Log balances after order
-            console.log("  After - Trader1 base:", baseToken.balanceOf(trader1) / baseMultiplier);
-            console.log("  After - Trader1 quote:", quoteToken.balanceOf(trader1) / quoteMultiplier);
-            console.log("  Hive base:", baseToken.balanceOf(address(hive)) / baseMultiplier);
-            console.log("  Hive quote:", quoteToken.balanceOf(address(hive)) / quoteMultiplier);
-        }
-        vm.stopPrank();
-
-        console.log("\n--- Placing SELL orders as trader2 ---");
-        console.log("Address of trader2", address(trader2));
-        vm.startPrank(trader2);
-        for (uint256 i = 0; i < sellPrices.length; i++) {
-            uint256[] memory prices = new uint256[](1);
-            uint256[] memory amounts = new uint256[](1);
-
-            prices[0] = sellPrices[i];
-            amounts[0] = baseMultiplier; // Amount in base token units
-
-            console.log("Order amount:", amounts[0] / baseMultiplier, "base tokens");
-
-            // Log balances before order
-            console.log("  Before - Trader2 base:", baseToken.balanceOf(trader2) / baseMultiplier);
-            console.log("  Before - Trader2 quote:", quoteToken.balanceOf(trader2) / quoteMultiplier);
-
-            hive.placeOrder(prices, amounts, OrderType.SELL);
-
-            // Log balances after order
-            console.log("  After - Trader2 base:", baseToken.balanceOf(trader2) / baseMultiplier);
-            console.log("  After - Trader2 quote:", quoteToken.balanceOf(trader2) / quoteMultiplier);
-            console.log("  Hive base:", baseToken.balanceOf(address(hive)) / baseMultiplier);
-            console.log("  Hive quote:", quoteToken.balanceOf(address(hive)) / quoteMultiplier);
-        }
-        vm.stopPrank();
-
-        // Log final balances
-        console.log("\n--- Final Balances ---");
-        console.log("Trader1 base token balance:", baseToken.balanceOf(trader1) / baseMultiplier);
-        console.log("Trader1 quote token balance:", quoteToken.balanceOf(trader1) / quoteMultiplier);
-        console.log("Trader2 base token balance:", baseToken.balanceOf(trader2) / baseMultiplier);
-        console.log("Trader2 quote token balance:", quoteToken.balanceOf(trader2) / quoteMultiplier);
-        console.log("Hive contract base token balance:", baseToken.balanceOf(address(hive)) / baseMultiplier);
-        console.log("Hive contract quote token balance:", quoteToken.balanceOf(address(hive)) / quoteMultiplier);
-
-        uint256 latestPrice = hive.getLatestPrice();
-        console.log("\nLatest price:", latestPrice / quoteMultiplier, "quote tokens");
-        console.log("Expected price:", 40, "quote tokens");
-
-        // Use assertEq from Foundry for better error messages
-        assertEq(latestPrice, 40 * quoteMultiplier, "Latest price should be 40 * quoteMultiplier");
-
-        console.log("testFlow completed successfully");
+    function testInitialState() public view {
+        assertEq(hiveCore.getBaseToken(), address(baseToken));
+        assertEq(hiveCore.getQuoteToken(), address(quoteToken));
+        assertEq(hiveCore.getLatestPrice(), 0);
+        assertEq(hiveCore.MAX_BATCH_SIZE(), 100);
     }
 
-    function testMassOrderPlacement() public {
-        vm.startPrank(trader1);
-        quoteToken.approve(address(hive), type(uint256).max);
-        // Create 1000 buy orders
-        for (uint256 i = 0; i < 1000; i++) {
-            uint256[] memory prices = new uint256[](1);
-            uint256[] memory amounts = new uint256[](1);
-            prices[0] = 1000 + i;
-            amounts[0] = 1 * 10 ** 18;
-            hive.placeOrder(prices, amounts, OrderType.BUY);
-        }
+    function testPlaceSingleBuyOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals(); // 1 BASE = 1 QUOTE
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Approve tokens
+        vm.startPrank(alice);
+        quoteToken.approve(address(hiveCore), hiveCore._calculateQuoteAmount(amount, price));
         vm.stopPrank();
 
-        // create 1000 sell orders
-        vm.startPrank(trader2);
-        baseToken.approve(address(hive), type(uint256).max);
-        for (uint256 i = 0; i < 1000; i++) {
-            uint256[] memory prices = new uint256[](1);
-            uint256[] memory amounts = new uint256[](1);
-            prices[0] = 1000 + i;
-            amounts[0] = 1 * 10 ** 18;
-            hive.placeOrder(prices, amounts, OrderType.SELL);
-        }
-        vm.stopPrank();
-    }
-
-    function testCancelOrder() public {
-        // Place a buy order
-        vm.startPrank(trader1);
+        // Place order
         uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
         uint256[] memory amounts = new uint256[](1);
-        prices[0] = 100 * 10 ** quoteToken.decimals();
-        amounts[0] = 10 * 10 ** baseToken.decimals();
-        hive.placeOrder(prices, amounts, OrderType.BUY);
+        amounts[0] = amount;
+
+        vm.startPrank(alice);
+        hiveCore.placeOrder(prices, amounts, OrderType.BUY);
         vm.stopPrank();
 
-        uint256 orderId = 1;
+        // Check order was created
+        uint256[] memory aliceOrders = hiveCore.getUserOrderIds(alice);
+        assertEq(aliceOrders.length, 1);
 
-        // Check order is active
-        (,,,,,, bool active,) = hive.orders(orderId);
-        assertTrue(active, "Order should be active");
+        Order memory order = hiveCore.getOrder(aliceOrders[0]);
+        assertEq(order.trader, alice);
+        assertEq(order.price, price);
+        assertEq(order.amount, amount);
+        assertEq(order.filled, 0);
+        assertEq(order.active, true);
 
-        // Cancel the order
-        vm.prank(trader1);
-        hive.cancelOrder(orderId);
-
-        // Check order is inactive
-        (,,,,,, active,) = hive.orders(orderId);
-        assertFalse(active, "Order should be inactive");
-
-        // Check refund
-        uint256 trader1QuoteBalance = quoteToken.balanceOf(trader1);
-        assertEq(trader1QuoteBalance, 1000 * 10 ** 18, "Trader1 should receive refund");
-
-        // Verify the price is removed from the buyTree
-        uint256[] memory buyPrices = hive.getBuyTreePrices();
-        for (uint256 i = 0; i < buyPrices.length; i++) {
-            assertEq(buyPrices[i], 0, "Buy tree should be 0 for every 20 elements");
-        }
+        // Check liquidity at price level
+        assertEq(hiveCore.getBuyLiquidityAtPrice(price), amount);
+        assertEq(hiveCore.getSellLiquidityAtPrice(price), 0);
     }
 
-    // Test updateOrder
-    function testUpdateOrder() public {
-        // Place a buy order
-        vm.startPrank(trader1);
-        uint256[] memory prices = new uint256[](1);
-        uint256[] memory amounts = new uint256[](1);
-        prices[0] = 100 * 10 ** quoteToken.decimals();
-        amounts[0] = 10 * 10 ** baseToken.decimals();
-        hive.placeOrder(prices, amounts, OrderType.BUY);
+    function testPlaceSingleSellOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals(); // 1 BASE = 1 QUOTE
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Approve tokens
+        vm.startPrank(alice);
+        baseToken.approve(address(hiveCore), amount);
         vm.stopPrank();
 
-        uint256 orderId = 1;
+        // Place order
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
 
-        // Update the order amount
+        vm.startPrank(alice);
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
+        vm.stopPrank();
+
+        // Check order was created
+        uint256[] memory aliceOrders = hiveCore.getUserOrderIds(alice);
+        assertEq(aliceOrders.length, 1);
+
+        Order memory order = hiveCore.getOrder(aliceOrders[0]);
+        assertEq(order.trader, alice);
+        assertEq(order.price, price);
+        assertEq(order.amount, amount);
+        assertEq(order.filled, 0);
+        assertEq(order.active, true);
+
+        // Check liquidity at price level
+        assertEq(hiveCore.getSellLiquidityAtPrice(price), amount);
+        assertEq(hiveCore.getBuyLiquidityAtPrice(price), 0);
+    }
+
+    function testMatchingOrders() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals(); // 1 BASE = 1 QUOTE
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+        uint256 quoteAmount = hiveCore._calculateQuoteAmount(amount, price);
+
+        // Alice places a buy order
+        vm.startPrank(alice);
+        quoteToken.approve(address(hiveCore), quoteAmount);
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.BUY);
+        vm.stopPrank();
+
+        // Bob places a matching sell order
+        vm.startPrank(bob);
+        baseToken.approve(address(hiveCore), amount);
+
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
+        vm.stopPrank();
+
+        // Check orders were matched
+        Order memory aliceOrder = hiveCore.getOrder(1);
+        Order memory bobOrder = hiveCore.getOrder(2);
+
+        assertEq(aliceOrder.filled, amount);
+        assertEq(aliceOrder.active, false);
+        assertEq(bobOrder.filled, amount);
+        assertEq(bobOrder.active, false);
+
+        // Check latest price was updated
+        assertEq(hiveCore.getLatestPrice(), price);
+
+        // Check liquidity was cleared
+        assertEq(hiveCore.getBuyLiquidityAtPrice(price), 0);
+        assertEq(hiveCore.getSellLiquidityAtPrice(price), 0);
+
+        // Check token transfers
+        assertEq(baseToken.balanceOf(alice), 1000 * 10 ** baseToken.decimals() + amount); // Alice received baseToken
+        assertEq(quoteToken.balanceOf(alice), 1000 * 10 ** quoteToken.decimals() - quoteAmount); // Alice spent quoteToken
+        assertEq(baseToken.balanceOf(bob), 1000 * 10 ** baseToken.decimals() - amount); // Bob spent baseToken
+        assertEq(quoteToken.balanceOf(bob), 1000 * 10 ** quoteToken.decimals() + quoteAmount); // Bob received quoteToken
+    }
+
+    function testPartialMatchingOrders() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 buyAmount = 10 * 10 ** baseToken.decimals();
+        uint256 sellAmount = 5 * 10 ** baseToken.decimals();
+
+        // Alice places a buy order
+        vm.startPrank(alice);
+        quoteToken.approve(address(hiveCore), hiveCore._calculateQuoteAmount(buyAmount, price));
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = buyAmount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.BUY);
+        vm.stopPrank();
+
+        // Bob places a smaller sell order
+        vm.startPrank(bob);
+        baseToken.approve(address(hiveCore), sellAmount);
+
+        amounts[0] = sellAmount;
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
+        vm.stopPrank();
+
+        // Check orders were partially matched
+        Order memory aliceOrder = hiveCore.getOrder(1);
+        Order memory bobOrder = hiveCore.getOrder(2);
+
+        assertEq(aliceOrder.filled, sellAmount);
+        assertEq(aliceOrder.active, true);
+        assertEq(bobOrder.filled, sellAmount);
+        assertEq(bobOrder.active, false);
+
+        // Check latest price was updated
+        assertEq(hiveCore.getLatestPrice(), price);
+
+        // Check remaining liquidity
+        assertEq(hiveCore.getBuyLiquidityAtPrice(price), buyAmount - sellAmount);
+        assertEq(hiveCore.getSellLiquidityAtPrice(price), 0);
+    }
+
+    function testCancelBuyOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Check initial balances
+        uint256 initialQuoteBalance = quoteToken.balanceOf(alice);
+
+        // Alice places a buy order
+        vm.startPrank(alice);
+        quoteToken.approve(address(hiveCore), hiveCore._calculateQuoteAmount(amount, price));
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.BUY);
+        vm.stopPrank();
+
+        // Cancel order
+        vm.startPrank(alice);
+        hiveCore.cancelOrder(1);
+        vm.stopPrank();
+
+        // Check order was cancelled
+        Order memory order = hiveCore.getOrder(1);
+        assertEq(order.active, false);
+
+        // Check liquidity was removed
+        assertEq(hiveCore.getBuyLiquidityAtPrice(price), 0);
+
+        // Check funds were returned
+        assertEq(quoteToken.balanceOf(alice), initialQuoteBalance);
+    }
+
+    function testCancelSellOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Check initial balances
+        uint256 initialBaseBalance = baseToken.balanceOf(alice);
+
+        // Alice places a sell order
+        vm.startPrank(alice);
+        baseToken.approve(address(hiveCore), amount);
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
+        vm.stopPrank();
+
+        // Cancel order
+        vm.startPrank(alice);
+        hiveCore.cancelOrder(1);
+        vm.stopPrank();
+
+        // Check order was cancelled
+        Order memory order = hiveCore.getOrder(1);
+        assertEq(order.active, false);
+
+        // Check liquidity was removed
+        assertEq(hiveCore.getSellLiquidityAtPrice(price), 0);
+
+        // Check funds were returned
+        assertEq(baseToken.balanceOf(alice), initialBaseBalance);
+    }
+
+    function testUpdateBuyOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 initialAmount = 10 * 10 ** baseToken.decimals();
+        uint256 newAmount = 15 * 10 ** baseToken.decimals();
+
+        // Alice places a buy order
+        vm.startPrank(alice);
+        quoteToken.approve(address(hiveCore), hiveCore._calculateQuoteAmount(initialAmount, price));
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = initialAmount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.BUY);
+        vm.stopPrank();
+
+        // Check initial liquidity
+        assertEq(hiveCore.getBuyLiquidityAtPrice(price), initialAmount);
+
+        // Update order with more amount
+        vm.startPrank(alice);
+        quoteToken.approve(address(hiveCore), hiveCore._calculateQuoteAmount(newAmount - initialAmount, price));
+
+        hiveCore.updateOrder(1, newAmount);
+        vm.stopPrank();
+
+        // Check order was updated
+        Order memory order = hiveCore.getOrder(1);
+
+        assertEq(order.amount, newAmount);
+    }
+
+    function testUpdateSellOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 initialAmount = 10 * 10 ** baseToken.decimals();
         uint256 newAmount = 5 * 10 ** baseToken.decimals();
-        vm.startPrank(trader1);
-        hive.updateOrder(orderId, newAmount);
+
+        // Alice places a sell order
+        vm.startPrank(alice);
+        baseToken.approve(address(hiveCore), initialAmount);
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = initialAmount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
         vm.stopPrank();
 
-        // Check updated order amount
-        (,, uint256 amount,,,,,) = hive.orders(orderId);
-        assertEq(amount, newAmount, "Order amount should be updated");
+        // Check initial liquidity
+        assertEq(hiveCore.getSellLiquidityAtPrice(price), initialAmount);
 
-        // Check refund
-        uint256 trader1QuoteBalance = quoteToken.balanceOf(trader1);
-        assertEq(trader1QuoteBalance, 500 * 10 ** quoteToken.decimals(), "Trader1 should receive refund");
+        // Update order with less amount
+        vm.startPrank(alice);
+        hiveCore.updateOrder(1, newAmount);
+        vm.stopPrank();
 
-        // Verify the price remains in the buyTree
-        uint256[] memory buyPrices = hive.getBuyTreePrices();
-        // assertEq(buyPrices.length, 1, "Buy tree should still contain the price");
-        assertEq(buyPrices[0], 100 * 10 ** quoteToken.decimals(), "Buy tree should contain the correct price");
+        // Check order was updated
+        Order memory order = hiveCore.getOrder(1);
+        assertEq(order.amount, newAmount);
+
+        // Check excess was returned
+        assertEq(baseToken.balanceOf(alice), 1000 * 10 ** baseToken.decimals() - newAmount);
+    }
+
+    function testExecuteBuyMarketOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+        uint256 marketOrderAmount = hiveCore._calculateQuoteAmount(amount, price);
+
+        // Bob places a sell order
+        vm.startPrank(bob);
+        baseToken.approve(address(hiveCore), amount);
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
+        vm.stopPrank();
+
+        // Alice executes a buy market order
+        vm.startPrank(alice);
+        quoteToken.approve(address(hiveCore), marketOrderAmount);
+
+        uint256[] memory marketPrices = new uint256[](1);
+        marketPrices[0] = price;
+
+        hiveCore.executeMarketOrder(
+            marketOrderAmount,
+            OrderType.BUY,
+            marketPrices,
+            0, // minAmount
+            0 // expiration
+        );
+        vm.stopPrank();
+
+        // Check orders were matched
+        Order memory bobOrder = hiveCore.getOrder(1);
+        assertEq(bobOrder.filled, amount);
+        assertEq(bobOrder.active, false);
+
+        // Check token transfers
+        assertEq(baseToken.balanceOf(alice), 1000 * 10 ** baseToken.decimals() + amount); // Alice received baseToken
+        assertEq(quoteToken.balanceOf(alice), 1000 * 10 ** quoteToken.decimals() - marketOrderAmount); // Alice spent quoteToken
+        assertEq(baseToken.balanceOf(bob), 1000 * 10 ** baseToken.decimals() - amount); // Bob sold baseToken
+        assertEq(quoteToken.balanceOf(bob), 1000 * 10 ** quoteToken.decimals() + marketOrderAmount); // Bob received quoteToken
+    }
+
+    function testExecuteSellMarketOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Bob places a buy order
+        vm.startPrank(bob);
+        quoteToken.approve(address(hiveCore), hiveCore._calculateQuoteAmount(amount, price));
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.BUY);
+        vm.stopPrank();
+
+        // Alice executes a sell market order
+        vm.startPrank(alice);
+        baseToken.approve(address(hiveCore), amount);
+
+        uint256[] memory marketPrices = new uint256[](1);
+        marketPrices[0] = price;
+
+        hiveCore.executeMarketOrder(
+            amount,
+            OrderType.SELL,
+            marketPrices,
+            0, // minAmount
+            0 // expiration
+        );
+        vm.stopPrank();
+
+        // Check orders were matched
+        Order memory bobOrder = hiveCore.getOrder(1);
+        assertEq(bobOrder.filled, amount);
+        assertEq(bobOrder.active, false);
+
+        // Check token transfers
+        uint256 expectedQuote = hiveCore._calculateQuoteAmount(amount, price);
+        assertEq(quoteToken.balanceOf(alice), 1000 * 10 ** quoteToken.decimals() + expectedQuote);
+        assertEq(baseToken.balanceOf(bob), 1000 * 10 ** baseToken.decimals() + amount);
+    }
+
+    function testBatchOrders() public {
+        uint256 batchSize = 5;
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amountPerOrder = 2 * 10 ** baseToken.decimals();
+
+        // Prepare arrays
+        uint256[] memory prices = new uint256[](batchSize);
+        uint256[] memory amounts = new uint256[](batchSize);
+
+        for (uint256 i = 0; i < batchSize; i++) {
+            prices[i] = price;
+            amounts[i] = amountPerOrder;
+        }
+
+        // Approve total amount
+        uint256 totalQuote = hiveCore._calculateQuoteAmount(amountPerOrder * batchSize, price);
+        vm.startPrank(alice);
+        quoteToken.approve(address(hiveCore), totalQuote);
+
+        // Place batch buy orders
+        hiveCore.placeOrder(prices, amounts, OrderType.BUY);
+        vm.stopPrank();
+
+        // Check all orders were created
+        uint256[] memory aliceOrders = hiveCore.getUserOrderIds(alice);
+        assertEq(aliceOrders.length, batchSize);
+
+        // Check liquidity
+        assertEq(hiveCore.getBuyLiquidityAtPrice(price), amountPerOrder * batchSize);
+    }
+
+    function testCannotPlaceInvalidOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Test zero price
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = 0;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        vm.startPrank(alice);
+        vm.expectRevert("HiveCore: QUOTE_AMOUNT_TOO_SMALL");
+        hiveCore.placeOrder(prices, amounts, OrderType.BUY);
+        vm.stopPrank();
+
+        // Test zero amount
+        prices[0] = price;
+        amounts[0] = 0;
+
+        vm.startPrank(alice);
+        vm.expectRevert("HiveCore: QUOTE_AMOUNT_TOO_SMALL");
+        hiveCore.placeOrder(prices, amounts, OrderType.BUY);
+        vm.stopPrank();
+
+        // Test invalid order type
+        amounts[0] = amount;
+
+        // vm.startPrank(alice);
+        // vm.expectRevert("HiveCore: INVALID_ORDER_TYPE");
+        // hiveCore.placeOrder(prices, amounts, 2); // Invalid type
+        // vm.stopPrank();
+    }
+
+    function testCannotCancelOthersOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Alice places an order
+        vm.startPrank(alice);
+        baseToken.approve(address(hiveCore), amount);
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
+        vm.stopPrank();
+
+        // Bob tries to cancel Alice's order
+        vm.startPrank(bob);
+        vm.expectRevert("HiveCore: UNAUTHORIZED");
+        hiveCore.cancelOrder(1);
+        vm.stopPrank();
+    }
+
+    function testCannotUpdateOthersOrder() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Alice places an order
+        vm.startPrank(alice);
+        baseToken.approve(address(hiveCore), amount);
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
+        vm.stopPrank();
+
+        // Bob tries to update Alice's order
+        vm.startPrank(bob);
+        vm.expectRevert("HiveCore: UNAUTHORIZED");
+        hiveCore.updateOrder(1, amount * 2);
+        vm.stopPrank();
+    }
+
+    function testCannotUpdateToInvalidAmount() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Alice places an order
+        vm.startPrank(alice);
+        baseToken.approve(address(hiveCore), amount);
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
+        vm.stopPrank();
+
+        // Try to update to zero amount
+        vm.startPrank(alice);
+        vm.expectRevert("HiveCore: INVALID_AMOUNT");
+        hiveCore.updateOrder(1, 0);
+        vm.stopPrank();
+    }
+
+    function testMarketOrderWithMinAmountProtection() public {
+        uint256 price = 1 * 10 ** quoteToken.decimals();
+        uint256 amount = 10 * 10 ** baseToken.decimals();
+
+        // Bob places a sell order
+        vm.startPrank(bob);
+        baseToken.approve(address(hiveCore), amount);
+
+        uint256[] memory prices = new uint256[](1);
+        prices[0] = price;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = amount;
+
+        hiveCore.placeOrder(prices, amounts, OrderType.SELL);
+        vm.stopPrank();
+
+        // Alice executes a buy market order with high minAmount
+        uint256 marketOrderAmount = hiveCore._calculateQuoteAmount(amount, price);
+        vm.startPrank(alice);
+        quoteToken.approve(address(hiveCore), marketOrderAmount);
+
+        uint256[] memory marketPrices = new uint256[](1);
+        marketPrices[0] = price;
+
+        vm.expectRevert("HiveCore: INSUFFICIENT_BASE_RECEIVED");
+        hiveCore.executeMarketOrder(
+            marketOrderAmount,
+            OrderType.BUY,
+            marketPrices,
+            amount + 1, // minAmount (more than available)
+            0
+        );
+        vm.stopPrank();
     }
 }

@@ -1,7 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "./LimitTree.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/IHiveCore.sol";
@@ -18,21 +17,12 @@ contract HiveCore is IHiveCore {
     mapping(uint256 => PriceLevel) public buyOrderAtPrices;
     mapping(uint256 => PriceLevel) public sellOrderAtPrices;
 
-    LimitTree private buyTree;
-    LimitTree private sellTree;
-
     uint256 public orderId;
     uint256 public latestPrice; // Stores the most recent trade price
 
     constructor(address _baseToken, address _quoteToken) {
         baseToken = ERC20(_baseToken);
         quoteToken = ERC20(_quoteToken);
-        buyTree = new LimitTree();
-        sellTree = new LimitTree();
-    }
-
-    function generateOrderId(uint256 amount, address trader, uint256 price) private view returns (bytes32) {
-        return keccak256(abi.encodePacked(amount, trader, price, block.timestamp));
     }
 
     /**
@@ -61,23 +51,21 @@ contract HiveCore is IHiveCore {
         orders[orderId] = order;
         userOrderIds[msg.sender].push(orderId);
 
+        emit OrderCreated(msg.sender, price, amount, orderType);
+
         if (orderType == OrderType.BUY) {
-            buyTree.insert(price);
             buyOrderAtPrices[price].headOrderId = orderId;
             buyOrderAtPrices[price].totalLiquidity += amount;
             if (sellOrderAtPrices[price].headOrderId != 0) {
                 _matchOrder(price);
             }
         } else {
-            sellTree.insert(price);
             sellOrderAtPrices[price].headOrderId = orderId;
             sellOrderAtPrices[price].totalLiquidity += amount;
             if (buyOrderAtPrices[price].headOrderId != 0) {
                 _matchOrder(price);
             }
         }
-
-        emit OrderCreated(msg.sender, price, amount, orderType);
     }
 
     /**
@@ -113,22 +101,42 @@ contract HiveCore is IHiveCore {
             if (buyOrder.filled == buyOrder.amount) {
                 buyOrder.active = false;
                 buyOrderAtPrices[price].headOrderId = buyOrder.next;
+                emit OrderFilled(buyOrderId, buyOrder.trader, buyOrder.amount, buyOrder.filled, 0, buyOrder.orderType);
+            } else {
+                emit OrderFilled(
+                    buyOrderId,
+                    buyOrder.trader,
+                    buyOrder.amount,
+                    buyOrder.filled,
+                    buyOrder.amount - buyOrder.filled,
+                    buyOrder.orderType
+                );
             }
 
             // If sell order is fully filled
             if (sellOrder.filled == sellOrder.amount) {
                 sellOrder.active = false;
                 sellOrderAtPrices[price].headOrderId = sellOrder.next;
+                emit OrderFilled(
+                    sellOrderId, sellOrder.trader, sellOrder.amount, sellOrder.filled, 0, sellOrder.orderType
+                );
+            } else {
+                emit OrderFilled(
+                    sellOrderId,
+                    sellOrder.trader,
+                    sellOrder.amount,
+                    sellOrder.filled,
+                    sellOrder.amount - sellOrder.filled,
+                    sellOrder.orderType
+                );
             }
         }
 
         // Remove price level if no more orders
         if (buyOrderAtPrices[price].headOrderId == 0) {
-            buyTree.deleteValue(price);
             delete buyOrderAtPrices[price];
         }
         if (sellOrderAtPrices[price].headOrderId == 0) {
-            sellTree.deleteValue(price);
             delete sellOrderAtPrices[price];
         }
     }
@@ -196,7 +204,6 @@ contract HiveCore is IHiveCore {
 
             // Remove price level if no more orders
             if (buyOrderAtPrices[price].headOrderId == 0) {
-                buyTree.deleteValue(price);
                 delete buyOrderAtPrices[price];
             }
 
@@ -221,7 +228,6 @@ contract HiveCore is IHiveCore {
 
             // Remove price level if no more orders
             if (sellOrderAtPrices[price].headOrderId == 0) {
-                sellTree.deleteValue(price);
                 delete sellOrderAtPrices[price];
             }
 
@@ -276,18 +282,31 @@ contract HiveCore is IHiveCore {
     }
 
     /**
-     * @dev Executes a market order.
+     * @dev Executes a market order with expiration and minimum return protection
      * @param amount For BUY orders: amount of quoteToken to spend buying baseToken.
      *               For SELL orders: amount of baseToken to sell for quoteToken.
      * @param orderType The type of the order (BUY or SELL).
+     * @param prices The list of prices to execute against
+     * @param minAmount Minimum amount to receive (base for BUY, quote for SELL)
+     * @param expiration Timestamp when order becomes invalid (0 for no expiration)
      */
-    function executeMarketOrder(uint256 amount, OrderType orderType) public override {
+    function executeMarketOrder(
+        uint256 amount,
+        OrderType orderType,
+        uint256[] memory prices,
+        uint256 minAmount,
+        uint256 expiration
+    ) external override {
         require(amount > 0, "HiveCore: INVALID_AMOUNT");
+        require(prices.length > 0, "HiveCore: NO_PRICES_PROVIDED");
+        require(expiration == 0 || block.timestamp < expiration, "HiveCore: ORDER_EXPIRED");
 
         if (orderType == OrderType.BUY) {
-            _executeBuyMarketOrder(amount);
+            uint256 baseReceived = _executeBuyMarketOrder(amount, prices);
+            require(baseReceived >= minAmount, "HiveCore: INSUFFICIENT_BASE_RECEIVED");
         } else if (orderType == OrderType.SELL) {
-            _executeSellMarketOrder(amount);
+            uint256 quoteReceived = _executeSellMarketOrder(amount, prices);
+            require(quoteReceived >= minAmount, "HiveCore: INSUFFICIENT_QUOTE_RECEIVED");
         } else {
             revert("Invalid order type");
         }
@@ -296,16 +315,19 @@ contract HiveCore is IHiveCore {
     /**
      * @dev Executes a buy market order (amount in quoteToken).
      * @param quoteAmount The amount of quoteToken to spend.
+     * @param prices Ascending list of prices to execute against
      */
-    function _executeBuyMarketOrder(uint256 quoteAmount) private {
+    function _executeBuyMarketOrder(uint256 quoteAmount, uint256[] memory prices)
+        private
+        returns (uint256 totalBaseReceived)
+    {
         uint256 remainingQuote = quoteAmount;
-        uint256[] memory sellPrices = sellTree.getAscendingOrder();
 
         // Transfer the full amount upfront (simpler accounting)
         quoteToken.transferFrom(msg.sender, address(this), quoteAmount);
 
-        for (uint256 i = 0; i < sellPrices.length && remainingQuote > 0; i++) {
-            uint256 price = sellPrices[i];
+        for (uint256 i = 0; i < prices.length && remainingQuote > 0; i++) {
+            uint256 price = prices[i];
             uint256 sellOrderId = sellOrderAtPrices[price].headOrderId;
 
             while (sellOrderId != 0 && remainingQuote > 0) {
@@ -335,14 +357,26 @@ contract HiveCore is IHiveCore {
                 if (sellOrder.filled == sellOrder.amount) {
                     sellOrder.active = false;
                     sellOrderAtPrices[price].headOrderId = sellOrder.next;
+                    emit OrderFilled(
+                        sellOrderId, sellOrder.trader, sellOrder.amount, sellOrder.filled, 0, sellOrder.orderType
+                    );
+                } else {
+                    emit OrderFilled(
+                        sellOrderId,
+                        sellOrder.trader,
+                        sellOrder.amount,
+                        sellOrder.filled,
+                        sellOrder.amount - sellOrder.filled,
+                        sellOrder.orderType
+                    );
                 }
 
                 sellOrderId = sellOrder.next;
+                totalBaseReceived += baseToTrade;
             }
 
             // Clean up empty price levels
             if (sellOrderAtPrices[price].headOrderId == 0) {
-                sellTree.deleteValue(price);
                 delete sellOrderAtPrices[price];
             }
         }
@@ -351,21 +385,26 @@ contract HiveCore is IHiveCore {
         if (remainingQuote > 0) {
             quoteToken.transfer(msg.sender, remainingQuote);
         }
+
+        return totalBaseReceived;
     }
 
     /**
      * @dev Executes a sell market order (amount in baseToken).
      * @param baseAmount The amount of baseToken to sell.
+     * @param prices Descending list of prices to execute against
      */
-    function _executeSellMarketOrder(uint256 baseAmount) private {
+    function _executeSellMarketOrder(uint256 baseAmount, uint256[] memory prices)
+        private
+        returns (uint256 totalQuoteReceived)
+    {
         uint256 remainingBase = baseAmount;
-        uint256[] memory buyPrices = buyTree.getDescendingOrder();
 
         // Transfer the full amount upfront
         baseToken.transferFrom(msg.sender, address(this), baseAmount);
 
-        for (uint256 i = 0; i < buyPrices.length && remainingBase > 0; i++) {
-            uint256 price = buyPrices[i];
+        for (uint256 i = 0; i < prices.length && remainingBase > 0; i++) {
+            uint256 price = prices[i];
             uint256 buyOrderId = buyOrderAtPrices[price].headOrderId;
 
             while (buyOrderId != 0 && remainingBase > 0) {
@@ -392,14 +431,26 @@ contract HiveCore is IHiveCore {
                 if (buyOrder.filled == buyOrder.amount) {
                     buyOrder.active = false;
                     buyOrderAtPrices[price].headOrderId = buyOrder.next;
+                    emit OrderFilled(
+                        buyOrderId, buyOrder.trader, buyOrder.amount, buyOrder.filled, 0, buyOrder.orderType
+                    );
+                } else {
+                    emit OrderFilled(
+                        buyOrderId,
+                        buyOrder.trader,
+                        buyOrder.amount,
+                        buyOrder.filled,
+                        buyOrder.amount - buyOrder.filled,
+                        buyOrder.orderType
+                    );
                 }
 
                 buyOrderId = buyOrder.next;
+                totalQuoteReceived += quoteToReceive;
             }
 
             // Clean up empty price levels
             if (buyOrderAtPrices[price].headOrderId == 0) {
-                buyTree.deleteValue(price);
                 delete buyOrderAtPrices[price];
             }
         }
@@ -408,6 +459,8 @@ contract HiveCore is IHiveCore {
         if (remainingBase > 0) {
             baseToken.transfer(msg.sender, remainingBase);
         }
+
+        return totalQuoteReceived;
     }
 
     /**
@@ -415,7 +468,7 @@ contract HiveCore is IHiveCore {
      * @param price Price of 1 baseToken in quoteToken's smallest units
      * @return quoteAmount Amount of quoteToken (in quoteToken's smallest units)
      */
-    function _calculateQuoteAmount(uint256 baseAmount, uint256 price) internal view returns (uint256) {
+    function _calculateQuoteAmount(uint256 baseAmount, uint256 price) public view returns (uint256) {
         uint256 baseDecimals = baseToken.decimals();
         uint256 quoteAmount = (baseAmount * price) / (10 ** baseDecimals);
 
@@ -429,29 +482,13 @@ contract HiveCore is IHiveCore {
      * @param price Price of 1 baseToken in quoteToken's smallest units
      * @return baseAmount Amount of baseToken (in baseToken's smallest units)
      */
-    function _calculateBaseAmount(uint256 quoteAmount, uint256 price) internal view returns (uint256) {
+    function _calculateBaseAmount(uint256 quoteAmount, uint256 price) public view returns (uint256) {
         uint256 baseDecimals = baseToken.decimals();
         uint256 baseAmount = (quoteAmount * (10 ** baseDecimals)) / price;
 
         // Protection against truncation to zero
         require(baseAmount > 0, "HiveCore: BASE_AMOUNT_TOO_SMALL");
         return baseAmount;
-    }
-
-    /**
-     *  @dev Get the buy tree prices
-     *  @return The buy tree prices
-     */
-    function getBuyTreePrices() public view override returns (uint256[] memory) {
-        return buyTree.getAscendingOrder();
-    }
-
-    /**
-     *  @dev Get the sell tree prices
-     *  @return The sell tree prices
-     */
-    function getSellTreePrices() public view override returns (uint256[] memory) {
-        return sellTree.getDescendingOrder();
     }
 
     /**
