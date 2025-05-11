@@ -4,9 +4,11 @@ pragma solidity ^0.8.0;
 import "../types/Types.sol";
 
 interface IHiveCore {
-    event OrderCreated(address indexed trader, uint256 price, uint256 amount, OrderType orderType);
-    event OrderCancelled(uint256 indexed orderId);
-    event OrderUpdated(uint256 indexed orderId, uint256 newAmount);
+    event OrderCreated(
+        address indexed trader, uint256 indexed orderId, uint256 price, uint256 amount, OrderType orderType
+    );
+    event OrderCancelled(uint256 indexed orderId, address indexed trader);
+    event OrderUpdated(uint256 indexed orderId, address indexed trader, uint256 newAmount);
     event OrderFilled(
         uint256 indexed orderId,
         address indexed trader,

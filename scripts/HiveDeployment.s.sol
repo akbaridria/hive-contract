@@ -22,14 +22,6 @@ contract HiveDeployment is Script {
         quoteTokens[0] = address(idrxToken);
         HiveFactory hiveFactory = new HiveFactory(quoteTokens);
         console.log("HiveFactory deployed at:", address(hiveFactory));
-
-        // IDRX QUOTE
-        address btc_usdc = hiveFactory.createHiveCore(address(btcToken), address(idrxToken));
-        console.log("HiveCore BTC/IDRX deployed at:", btc_usdc);
-        address dummyx_idrx = hiveFactory.createHiveCore(address(dummyX), address(idrxToken));
-        console.log("HiveCore DUMX/IDRX deployed at:", dummyx_idrx);
-        address dummyy_idrx = hiveFactory.createHiveCore(address(dummyY), address(idrxToken));
-        console.log("HiveCore DUMY/IDRX deployed at:", dummyy_idrx);
         
         vm.stopBroadcast();
     }

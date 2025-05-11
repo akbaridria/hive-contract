@@ -23,8 +23,22 @@ deploy-lisk-testnet:
 	--verifier blockscout \
 	--verifier-url ${BLOCKSCOUT_LISK_TESTNET}
 
-test-flow-testnet:
-	forge script scripts/HiveFlowTest.s.sol \
+test-create-pool:
+	forge script scripts/CreatePool.s.sol \
+	--rpc-url ${LISK_TESTNET_RPC} \
+	--broadcast \
+	--skip-simulation \
+	--private-key ${PRIVATE_KEY}
+
+test-limit-order:
+	forge script scripts/CreateLimitOrder.s.sol \
+	--rpc-url ${LISK_TESTNET_RPC} \
+	--broadcast \
+	--skip-simulation \
+	--private-key ${PRIVATE_KEY}
+
+test-execute-order:
+	forge script scripts/CreateExecuteOrder.s.sol \
 	--rpc-url ${LISK_TESTNET_RPC} \
 	--broadcast \
 	--skip-simulation \
@@ -33,7 +47,7 @@ test-flow-testnet:
 verify-hivecore-contract-testnet:
 	forge verify-contract \
 	--rpc-url ${LISK_TESTNET_RPC} \
-	0x8aaF54F2C894365204d4148bCD6719928aF38e1A \
+	0x27b698e1dEf9887D891cfB31fB0904BA31BB9110 \
 	src/HiveCore.sol:HiveCore \
 	--verifier blockscout \
 	--verifier-url ${BLOCKSCOUT_LISK_TESTNET}

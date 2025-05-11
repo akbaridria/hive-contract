@@ -51,7 +51,7 @@ contract HiveCore is IHiveCore {
         orders[orderId] = order;
         userOrderIds[msg.sender].push(orderId);
 
-        emit OrderCreated(msg.sender, price, amount, orderType);
+        emit OrderCreated(msg.sender, orderId, price, amount, orderType);
 
         if (orderType == OrderType.BUY) {
             buyOrderAtPrices[price].headOrderId = orderId;
@@ -235,7 +235,7 @@ contract HiveCore is IHiveCore {
             baseToken.transfer(msg.sender, remainingAmount);
         }
 
-        emit OrderCancelled(id);
+        emit OrderCancelled(id, msg.sender);
     }
 
     /**
@@ -278,7 +278,7 @@ contract HiveCore is IHiveCore {
         // Update the order amount
         order.amount = newAmount;
 
-        emit OrderUpdated(id, newAmount);
+        emit OrderUpdated(id, msg.sender, newAmount);
     }
 
     /**
