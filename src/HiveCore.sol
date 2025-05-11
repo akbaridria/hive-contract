@@ -87,7 +87,7 @@ contract HiveCore is IHiveCore {
 
             // Update the latest price
             latestPrice = price;
-            emit TradeExecuted(buyOrder.trader, sellOrder.trader, tradeAmount, latestPrice);
+            emit LatestPrice(price);
 
             // Update filled amounts
             buyOrder.filled += tradeAmount;
@@ -304,9 +304,11 @@ contract HiveCore is IHiveCore {
         if (orderType == OrderType.BUY) {
             uint256 baseReceived = _executeBuyMarketOrder(amount, prices);
             require(baseReceived >= minAmount, "HiveCore: INSUFFICIENT_BASE_RECEIVED");
+            emit MarketOrderExecuted(msg.sender, amount, latestPrice, orderType, baseReceived);
         } else if (orderType == OrderType.SELL) {
             uint256 quoteReceived = _executeSellMarketOrder(amount, prices);
             require(quoteReceived >= minAmount, "HiveCore: INSUFFICIENT_QUOTE_RECEIVED");
+            emit MarketOrderExecuted(msg.sender, amount, latestPrice, orderType, quoteReceived);
         } else {
             revert("Invalid order type");
         }
@@ -347,7 +349,7 @@ contract HiveCore is IHiveCore {
 
                 // Update state
                 latestPrice = price;
-                emit TradeExecuted(msg.sender, sellOrder.trader, baseToTrade, latestPrice);
+                emit LatestPrice(price);
 
                 sellOrder.filled += baseToTrade;
                 sellOrderAtPrices[price].totalLiquidity -= baseToTrade;
@@ -421,7 +423,7 @@ contract HiveCore is IHiveCore {
 
                 // Update state
                 latestPrice = price;
-                emit TradeExecuted(buyOrder.trader, msg.sender, baseToTrade, latestPrice);
+                emit LatestPrice(price);
 
                 buyOrder.filled += baseToTrade;
                 buyOrderAtPrices[price].totalLiquidity -= baseToTrade;

@@ -17,7 +17,14 @@ interface IHiveCore {
         uint256 remaining,
         OrderType orderType
     );
-    event TradeExecuted(address indexed buyer, address indexed seller, uint256 tradeAmount, uint256 price);
+    event LatestPrice(uint256 price);
+    event MarketOrderExecuted(
+        address indexed trader,
+        uint256 amount,
+        uint256 price,
+        OrderType orderType,
+        uint256 filledAmount
+    );
 
     function placeOrder(uint256[] memory price, uint256[] memory amount, OrderType orderType) external;
     function cancelOrder(uint256 id) external;
