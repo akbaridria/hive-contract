@@ -19,11 +19,7 @@ interface IHiveCore {
     );
     event LatestPrice(uint256 price);
     event MarketOrderExecuted(
-        address indexed trader,
-        uint256 amount,
-        uint256 price,
-        OrderType orderType,
-        uint256 filledAmount
+        address indexed trader, uint256 amount, uint256 price, OrderType orderType, uint256 filledAmount
     );
 
     function placeOrder(uint256[] memory price, uint256[] memory amount, OrderType orderType) external;
